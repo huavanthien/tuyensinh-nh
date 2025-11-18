@@ -1,15 +1,24 @@
-
-import React, { useState, useContext } from 'react';
-import { AppContext } from '../../App';
+import React, { useState, useContext, useEffect } from 'react';
+import { AppContext, API_BASE_URL } from '../../App';
 import type { Announcement, Guideline } from '../../types';
 
 const AnnouncementManagement: React.FC = () => {
-    const { announcement, guidelines, updateAnnouncement, updateGuidelines } = useContext(AppContext)!;
-
-    const [localAnnouncement, setLocalAnnouncement] = useState<Announcement>(announcement);
-    const [localGuidelines, setLocalGuidelines] = useState<Guideline[]>(guidelines);
+    const appContext = useContext(AppContext);
+    
+    const [localAnnouncement, setLocalAnnouncement] = useState<Announcement | null>(null);
+    const [localGuidelines, setLocalGuidelines] = useState<Guideline[]>([]);
+    const [newAttachment, setNewAttachment] = useState<File | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     const [isSaved, setIsSaved] = useState(false);
+
+    useEffect(() => {
+        if (appContext?.announcement && appContext?.guidelines) {
+            setLocalAnnouncement(appContext.announcement);
+            setLocalGuidelines(appContext.guidelines);
+        }
+    }, [appContext?.announcement, appContext?.guidelines]);
+
+    if (!localAnnouncement) return <div>Đang tải...</div>;
 
     const handleAnnouncementChange = (index: number, value: string) => {
         const newDetails = [...localAnnouncement.details];
@@ -32,17 +41,13 @@ const AnnouncementManagement: React.FC = () => {
     
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
-            const file = e.target.files[0];
-            // Revoke previous blob URL if it exists to prevent memory leaks
-            if (localAnnouncement.attachmentUrl && localAnnouncement.attachmentUrl.startsWith('blob:')) {
-                URL.revokeObjectURL(localAnnouncement.attachmentUrl);
-            }
-            const newAnnouncement = {
+            setNewAttachment(e.target.files[0]);
+            // Optimistic update for UI
+            setLocalAnnouncement({
                 ...localAnnouncement,
-                attachmentUrl: URL.createObjectURL(file),
-                attachmentName: file.name
-            };
-            setLocalAnnouncement(newAnnouncement);
+                attachmentName: e.target.files[0].name,
+                attachmentUrl: URL.createObjectURL(e.target.files[0]) // Temporary for preview
+            });
         }
     };
 
@@ -52,23 +57,45 @@ const AnnouncementManagement: React.FC = () => {
             URL.revokeObjectURL(attachmentUrl);
         }
         setLocalAnnouncement(rest);
+        setNewAttachment(null); // Mark for removal on save
     };
 
-    const handleSaveChanges = () => {
+    const handleSaveChanges = async () => {
         setIsSaving(true);
         setIsSaved(false);
-        setTimeout(() => {
-            updateAnnouncement(localAnnouncement);
-            updateGuidelines(localGuidelines);
-            setIsSaving(false);
+        try {
+            // Use FormData for potential file upload
+            const formData = new FormData();
+            formData.append('announcementData', JSON.stringify(localAnnouncement));
+            formData.append('guidelinesData', JSON.stringify(localGuidelines));
+            if (newAttachment) {
+                formData.append('attachment', newAttachment);
+            } else if (!localAnnouncement.attachmentUrl) {
+                formData.append('removeAttachment', 'true');
+            }
+
+            const response = await fetch(`${API_BASE_URL}/api/site-content`, {
+                method: 'PUT',
+                body: formData,
+            });
+
+            if (!response.ok) throw new Error('Failed to save content');
+            
+            await appContext?.fetchData(); // Refetch all data to get the latest version
+            
             setIsSaved(true);
-            setTimeout(() => setIsSaved(false), 2000); // Hide message after 2s
-        }, 1000);
+            setTimeout(() => setIsSaved(false), 2000);
+        } catch (error) {
+            console.error(error);
+            alert("Lỗi khi lưu thay đổi.");
+        } finally {
+            setIsSaving(false);
+            setNewAttachment(null);
+        }
     };
 
     return (
         <div className="space-y-8">
-            {/* Announcement Editor */}
             <div className="bg-white p-6 rounded-lg shadow-lg">
                 <h2 className="text-xl font-bold text-gray-800 mb-4">Chỉnh sửa Thông báo Tuyển sinh</h2>
                 <div className="space-y-4">
@@ -96,7 +123,7 @@ const AnnouncementManagement: React.FC = () => {
                         <label className="block text-sm font-medium text-gray-700">Tệp đính kèm (Thông báo chi tiết)</label>
                         {localAnnouncement.attachmentUrl ? (
                             <div className="mt-2 flex items-center justify-between p-2 bg-gray-100 rounded-md">
-                                <a href={localAnnouncement.attachmentUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-primary hover:underline truncate" title={localAnnouncement.attachmentName}>
+                                <a href={localAnnouncement.attachmentUrl.startsWith('blob:') ? localAnnouncement.attachmentUrl : `${API_BASE_URL}${localAnnouncement.attachmentUrl}`} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-primary hover:underline truncate" title={localAnnouncement.attachmentName}>
                                     {localAnnouncement.attachmentName}
                                 </a>
                                 <button onClick={removeAttachment} className="ml-4 text-sm font-semibold text-danger hover:underline">Xóa</button>
@@ -114,7 +141,6 @@ const AnnouncementManagement: React.FC = () => {
                 </div>
             </div>
 
-            {/* Guidelines Editor */}
             <div className="bg-white p-6 rounded-lg shadow-lg">
                 <h2 className="text-xl font-bold text-gray-800 mb-4">Chỉnh sửa Hướng dẫn Đăng ký</h2>
                 <div className="space-y-3">

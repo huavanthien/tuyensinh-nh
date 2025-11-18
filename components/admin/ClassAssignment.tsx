@@ -1,5 +1,5 @@
 import React, { useContext, useState, useMemo } from 'react';
-import { AppContext } from '../../App';
+import { AppContext, API_BASE_URL } from '../../App';
 import type { Application } from '../../types';
 import { ApplicationStatus, EnrollmentRoute } from '../../types';
 
@@ -21,56 +21,64 @@ const ClassAssignment: React.FC = () => {
         return occupancy;
     }, [applications, classes]);
 
-    const handleAutoAssign = () => {
+    const handleAutoAssign = async () => {
         setIsLoading(true);
-        setTimeout(() => {
-            let studentsToAssign = [...unassignedStudents];
-            const updatedApplications: Application[] = [];
-            const tempOccupancy = { ...classOccupancy };
+        // This logic remains client-side for calculation, but the result is sent to the backend.
+        let studentsToAssign = [...unassignedStudents];
+        const assignments: { id: string, classId: string, status: ApplicationStatus }[] = [];
+        const tempOccupancy = { ...classOccupancy };
 
-            // Sort students: priority -> in-route -> out-of-route
-            studentsToAssign.sort((a, b) => {
-                if (a.isPriority !== b.isPriority) return a.isPriority ? -1 : 1;
-                if (a.enrollmentRoute !== b.enrollmentRoute) {
-                    return a.enrollmentRoute === EnrollmentRoute.IN_ROUTE ? -1 : 1;
-                }
-                return 0;
-            });
+        studentsToAssign.sort((a, b) => {
+            if (a.isPriority !== b.isPriority) return a.isPriority ? -1 : 1;
+            if (a.enrollmentRoute !== b.enrollmentRoute) return a.enrollmentRoute === EnrollmentRoute.IN_ROUTE ? -1 : 1;
+            return 0;
+        });
 
-            for (const student of studentsToAssign) {
-                let assigned = false;
-                for (const schoolClass of classes) {
-                    if (tempOccupancy[schoolClass.id] < schoolClass.maxSize) {
-                        updatedApplications.push({
-                            ...student,
-                            classId: schoolClass.id,
-                            status: ApplicationStatus.ASSIGNED
-                        });
-                        tempOccupancy[schoolClass.id]++;
-                        assigned = true;
-                        break;
-                    }
-                }
-                if (!assigned) {
-                    // If no class has space, student remains approved but unassigned
-                    updatedApplications.push(student);
+        for (const student of studentsToAssign) {
+            for (const schoolClass of classes) {
+                if (tempOccupancy[schoolClass.id] < schoolClass.maxSize) {
+                    assignments.push({ id: student.id, classId: schoolClass.id, status: ApplicationStatus.ASSIGNED });
+                    tempOccupancy[schoolClass.id]++;
+                    break;
                 }
             }
+        }
 
-            updateApplications(updatedApplications);
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/applications/bulk-update`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ updates: assignments }),
+            });
+            if (!response.ok) throw new Error('Failed to assign classes');
+            const updatedApps = await response.json();
+            updateApplications(updatedApps);
+        } catch (error) {
+            console.error(error);
+            alert("Lỗi khi phân lớp tự động.");
+        } finally {
             setIsLoading(false);
-        }, 1000); // Simulate processing time
+        }
     };
 
-    const handleManualAssign = (studentId: string, classId: string) => {
+    const handleManualAssign = async (studentId: string, classId: string) => {
         if (!classId) return;
         const student = applications.find(app => app.id === studentId);
         if (student) {
-            updateApplication({
-                ...student,
-                classId: classId,
-                status: ApplicationStatus.ASSIGNED,
-            });
+            const updatedApp = { ...student, classId, status: ApplicationStatus.ASSIGNED };
+            try {
+                 const response = await fetch(`${API_BASE_URL}/api/applications/${student.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updatedApp),
+                });
+                if (!response.ok) throw new Error('Failed to assign class');
+                const data = await response.json();
+                updateApplication(data);
+            } catch (error) {
+                 console.error(error);
+                 alert("Lỗi khi phân lớp.");
+            }
         }
     };
 
@@ -142,7 +150,7 @@ const ClassAssignment: React.FC = () => {
                  <div className="space-y-4">
                      {classes.map(schoolClass => {
                          const currentSize = classOccupancy[schoolClass.id] || 0;
-                         const percentage = (currentSize / schoolClass.maxSize) * 100;
+                         const percentage = schoolClass.maxSize > 0 ? (currentSize / schoolClass.maxSize) * 100 : 0;
                          return (
                              <div key={schoolClass.id}>
                                  <div className="flex justify-between items-center mb-1">

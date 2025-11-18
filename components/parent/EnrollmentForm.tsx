@@ -1,5 +1,5 @@
 import React, { useState, useContext, useEffect } from 'react';
-import { AppContext } from '../../App';
+import { AppContext, API_BASE_URL } from '../../App';
 import type { Application } from '../../types';
 import { ApplicationStatus, EnrollmentType, EnrollmentRoute } from '../../types';
 
@@ -7,86 +7,45 @@ interface EnrollmentFormProps {
     onFormSuccess: (application: Application) => void;
 }
 
-// FIX: Define a type for the form data from the Application interface to ensure type safety.
-type EnrollmentFormData = Pick<Application, 
-    'studentName' | 
-    'studentDob' | 
-    'studentGender' | 
-    'parentName' | 
-    'parentPhone' | 
-    'address' | 
-    'enrollmentType' | 
-    'enrollmentRoute' | 
-    'isPriority'
->;
-
-const InputField: React.FC<{label: string, id: string, type: string, value: string, onChange: (e: React.ChangeEvent<HTMLInputElement>) => void, required?: boolean}> = 
-({label, id, type, value, onChange, required=true}) => (
+// FIX: Changed props from `value` to `defaultValue` to support uncontrolled inputs, which matches the form's usage of FormData.
+const InputField: React.FC<{label: string, id: string, name: string, type: string, defaultValue: string, onChange: (e: React.ChangeEvent<HTMLInputElement>) => void, required?: boolean}> = 
+({label, id, name, type, defaultValue, onChange, required=true}) => (
     <div>
         <label htmlFor={id} className="block text-sm font-medium text-gray-700">{label}</label>
-        <input type={type} id={id} name={id} value={value} onChange={onChange} required={required} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" />
+        <input type={type} id={id} name={name} defaultValue={defaultValue} onChange={onChange} required={required} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" />
     </div>
 );
 
-
 const EnrollmentForm: React.FC<EnrollmentFormProps> = ({ onFormSuccess }) => {
     const appContext = useContext(AppContext);
-    // FIX: Explicitly type the formData state to prevent properties from being widened to `string`.
-    const [formData, setFormData] = useState<EnrollmentFormData>({
-        studentName: 'Nguyễn Thị Hoa',
-        studentDob: '2018-10-20',
-        studentGender: 'Nữ',
-        parentName: 'Nguyễn Văn Hùng',
-        parentPhone: '0988776655',
-        address: 'Thôn 1, xã Đắk Wil, Cư Jút, Đắk Nông',
-        enrollmentType: EnrollmentType.GRADE_1,
-        enrollmentRoute: EnrollmentRoute.IN_ROUTE,
-        isPriority: false,
-    });
-    const [birthCert, setBirthCert] = useState<File | null>(null);
-    const [residenceProof, setResidenceProof] = useState<File | null>(null);
     const [loading, setLoading] = useState(false);
     const [isDirty, setIsDirty] = useState(false);
+    const [birthCert, setBirthCert] = useState<File | null>(null);
+    const [residenceProof, setResidenceProof] = useState<File | null>(null);
 
     useEffect(() => {
         const handleBeforeUnload = (event: BeforeUnloadEvent) => {
             if (isDirty) {
-                // Standard way to trigger the browser's confirmation dialog.
                 event.preventDefault();
-                // Required for most browsers.
                 event.returnValue = '';
             }
         };
-
         window.addEventListener('beforeunload', handleBeforeUnload);
-
-        // Cleanup the event listener when the component unmounts
-        return () => {
-            window.removeEventListener('beforeunload', handleBeforeUnload);
-        };
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [isDirty]);
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-        setIsDirty(true);
-        const { name, value, type } = e.target;
-        if (type === 'checkbox') {
-             const { checked } = e.target as HTMLInputElement;
-             setFormData(prev => ({ ...prev, [name]: checked }));
-        } else {
-             // FIX: The value from a select element is a string. Cast to `any` to update the typed state.
-             // This is safe because the select options' values match the required literal/enum types.
-             setFormData(prev => ({ ...prev, [name]: value as any }));
-        }
+    const handleAnythingChanged = () => {
+        if (!isDirty) setIsDirty(true);
     };
     
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, setFile: React.Dispatch<React.SetStateAction<File | null>>) => {
         if (e.target.files && e.target.files[0]) {
-            setIsDirty(true);
+            handleAnythingChanged();
             setFile(e.target.files[0]);
         }
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         if (!birthCert || !residenceProof) {
             alert('Vui lòng tải lên đầy đủ giấy tờ.');
@@ -94,22 +53,33 @@ const EnrollmentForm: React.FC<EnrollmentFormProps> = ({ onFormSuccess }) => {
         }
         setLoading(true);
 
-        setTimeout(() => {
-            const newApplicationId = `NH25${String(appContext!.applications.length + 1).padStart(3, '0')}`;
-            // FIX: With the state correctly typed, this object assignment is now type-safe and no longer causes an error.
-            const newApplication: Application = {
-                ...formData,
-                id: newApplicationId,
-                status: ApplicationStatus.SUBMITTED,
-                submittedAt: new Date(),
-                birthCertUrl: URL.createObjectURL(birthCert),
-                residenceProofUrl: URL.createObjectURL(residenceProof),
-            };
+        const formElement = e.currentTarget;
+        const formData = new FormData(formElement);
+        formData.append('birthCert', birthCert);
+        formData.append('residenceProof', residenceProof);
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/applications`, {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Failed to submit application');
+            }
+
+            const newApplication: Application = await response.json();
             appContext!.addApplication(newApplication);
-            setLoading(false);
             setIsDirty(false); // Reset dirty state on successful submission
             onFormSuccess(newApplication);
-        }, 1000);
+
+        } catch (error: any) {
+            console.error('Submission failed:', error);
+            alert(`Lỗi: ${error.message}`);
+        } finally {
+            setLoading(false);
+        }
     };
     
     const FileInput: React.FC<{label: string, id: string, file: File | null, onChange: (e: React.ChangeEvent<HTMLInputElement>) => void, accept: string}> = ({label, id, file, onChange, accept}) => (
@@ -140,24 +110,24 @@ const EnrollmentForm: React.FC<EnrollmentFormProps> = ({ onFormSuccess }) => {
     );
 
     return (
-        <form onSubmit={handleSubmit} className="space-y-8 bg-white p-8 rounded-lg shadow-lg max-w-4xl mx-auto">
+        <form onSubmit={handleSubmit} onChange={handleAnythingChanged} className="space-y-8 bg-white p-8 rounded-lg shadow-lg max-w-4xl mx-auto">
             <h2 className="text-2xl font-bold text-gray-900">Phiếu Đăng ký Tuyển sinh Trực tuyến</h2>
             
             <div className="border-b border-gray-200 pb-6">
                 <h3 className="text-lg font-semibold leading-6 text-gray-900">I. Thông tin học sinh</h3>
                 <div className="mt-4 grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-6">
                     <div className="sm:col-span-3">
-                        <InputField label="Họ và tên học sinh" id="studentName" type="text" value={formData.studentName} onChange={handleChange} />
+                        <InputField label="Họ và tên học sinh" id="studentName" name="studentName" type="text" defaultValue="Nguyễn Thị Hoa" onChange={() => {}} />
                     </div>
                      <div className="sm:col-span-3">
                         <label htmlFor="studentGender" className="block text-sm font-medium text-gray-700">Giới tính</label>
-                        <select id="studentGender" name="studentGender" value={formData.studentGender} onChange={handleChange} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md">
+                        <select id="studentGender" name="studentGender" defaultValue="Nữ" className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md">
                             <option>Nam</option>
                             <option>Nữ</option>
                         </select>
                     </div>
                     <div className="sm:col-span-3">
-                        <InputField label="Ngày sinh" id="studentDob" type="date" value={formData.studentDob} onChange={handleChange} />
+                        <InputField label="Ngày sinh" id="studentDob" name="studentDob" type="date" defaultValue="2018-10-20" onChange={() => {}} />
                     </div>
                 </div>
             </div>
@@ -166,13 +136,13 @@ const EnrollmentForm: React.FC<EnrollmentFormProps> = ({ onFormSuccess }) => {
                 <h3 className="text-lg font-semibold leading-6 text-gray-900">II. Thông tin phụ huynh</h3>
                 <div className="mt-4 grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-6">
                     <div className="sm:col-span-3">
-                        <InputField label="Họ và tên cha/mẹ/người giám hộ" id="parentName" type="text" value={formData.parentName} onChange={handleChange} />
+                        <InputField label="Họ và tên cha/mẹ/người giám hộ" id="parentName" name="parentName" type="text" defaultValue="Nguyễn Văn Hùng" onChange={() => {}} />
                     </div>
                      <div className="sm:col-span-3">
-                         <InputField label="Số điện thoại" id="parentPhone" type="tel" value={formData.parentPhone} onChange={handleChange} />
+                         <InputField label="Số điện thoại" id="parentPhone" name="parentPhone" type="tel" defaultValue="0988776655" onChange={() => {}} />
                     </div>
                     <div className="sm:col-span-6">
-                         <InputField label="Địa chỉ thường trú" id="address" type="text" value={formData.address} onChange={handleChange} />
+                         <InputField label="Địa chỉ thường trú" id="address" name="address" type="text" defaultValue="Thôn 1, xã Đắk Wil, Cư Jút, Đắk Nông" onChange={() => {}} />
                     </div>
                 </div>
             </div>
@@ -182,20 +152,20 @@ const EnrollmentForm: React.FC<EnrollmentFormProps> = ({ onFormSuccess }) => {
                 <div className="mt-4 grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-6">
                     <div className="sm:col-span-3">
                         <label htmlFor="enrollmentType" className="block text-sm font-medium text-gray-700">Loại hình tuyển sinh</label>
-                        <select id="enrollmentType" name="enrollmentType" value={formData.enrollmentType} onChange={handleChange} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md">
+                        <select id="enrollmentType" name="enrollmentType" defaultValue={EnrollmentType.GRADE_1} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md">
                             {Object.values(EnrollmentType).map(et => <option key={et}>{et}</option>)}
                         </select>
                     </div>
                     <div className="sm:col-span-3">
                         <label htmlFor="enrollmentRoute" className="block text-sm font-medium text-gray-700">Tuyến tuyển sinh</label>
-                        <select id="enrollmentRoute" name="enrollmentRoute" value={formData.enrollmentRoute} onChange={handleChange} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md">
+                        <select id="enrollmentRoute" name="enrollmentRoute" defaultValue={EnrollmentRoute.IN_ROUTE} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md">
                              {Object.values(EnrollmentRoute).map(er => <option key={er}>{er}</option>)}
                         </select>
                     </div>
                     <div className="sm:col-span-6">
                         <div className="relative flex items-start">
                             <div className="flex items-center h-5">
-                                <input id="isPriority" name="isPriority" type="checkbox" checked={formData.isPriority} onChange={handleChange} className="focus:ring-primary h-4 w-4 text-primary border-gray-300 rounded" />
+                                <input id="isPriority" name="isPriority" type="checkbox" className="focus:ring-primary h-4 w-4 text-primary border-gray-300 rounded" />
                             </div>
                             <div className="ml-3 text-sm">
                                 <label htmlFor="isPriority" className="font-medium text-gray-700">Thuộc diện ưu tiên</label>

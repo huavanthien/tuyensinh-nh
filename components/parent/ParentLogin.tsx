@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { API_BASE_URL } from '../../App';
 
 interface ParentLoginProps {
     onLoginSuccess: () => void;
@@ -9,11 +10,10 @@ const ParentLogin: React.FC<ParentLoginProps> = ({ onLoginSuccess, onBack }) => 
     const [step, setStep] = useState<'phone' | 'otp'>('phone');
     const [phoneNumber, setPhoneNumber] = useState('');
     const [otp, setOtp] = useState('');
-    const [generatedOtp, setGeneratedOtp] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
-    const handleSendOtp = (e: React.FormEvent) => {
+    const handleSendOtp = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
         if (!/^\d{10}$/.test(phoneNumber)) {
@@ -22,30 +22,45 @@ const ParentLogin: React.FC<ParentLoginProps> = ({ onLoginSuccess, onBack }) => 
         }
         setLoading(true);
         
-        // Simulate sending OTP by generating a random 6-digit code
-        const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
-        setGeneratedOtp(newOtp);
-
-        setTimeout(() => {
-            setLoading(false);
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/auth/send-otp`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phoneNumber }),
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.message || 'Failed to send OTP');
+            }
             setStep('otp');
-        }, 1000);
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
     };
 
-    const handleVerifyOtp = (e: React.FormEvent) => {
+    const handleVerifyOtp = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
         setLoading(true);
         
-        // Simulate verifying OTP
-        setTimeout(() => {
-            if (otp === generatedOtp) {
-                onLoginSuccess();
-            } else {
-                setError('Mã OTP không chính xác. Vui lòng thử lại.');
+        try {
+             const response = await fetch(`${API_BASE_URL}/api/auth/verify-otp`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phoneNumber, otp }),
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                 throw new Error(data.message || 'Failed to verify OTP');
             }
+            onLoginSuccess();
+        } catch (err: any) {
+             setError(err.message);
+        } finally {
             setLoading(false);
-        }, 1000);
+        }
     };
 
     return (
@@ -84,11 +99,8 @@ const ParentLogin: React.FC<ParentLoginProps> = ({ onLoginSuccess, onBack }) => 
                         <label htmlFor="otp" className="block text-sm font-medium text-gray-700">
                            Mã xác thực (OTP)
                         </label>
-                        <p className="text-sm text-gray-600 mb-1">Một mã đã được gửi đến số {phoneNumber}.</p>
-                        <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-2 my-2 rounded-md">
-                            <p className="font-bold text-center text-lg tracking-widest">{generatedOtp}</p>
-                            <p className="text-xs text-center">(Đây là mã OTP giả lập cho mục đích thử nghiệm)</p>
-                        </div>
+                        <p className="text-sm text-gray-600 mb-2">Một mã xác thực đã được gửi đến số <span className="font-semibold">{phoneNumber}</span>.</p>
+                        <p className="text-xs text-center text-gray-500 my-2 p-2 bg-gray-100 rounded-md">(Để phục vụ mục đích thử nghiệm, vui lòng sử dụng mã: <strong className="font-mono text-primary">123456</strong>)</p>
                         <input
                             type="text"
                             id="otp"

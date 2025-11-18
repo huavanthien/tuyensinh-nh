@@ -1,5 +1,5 @@
 import React, { useState, useContext, useMemo } from 'react';
-import { AppContext } from '../../App';
+import { AppContext, API_BASE_URL } from '../../App';
 import type { SchoolClass } from '../../types';
 
 const ClassManagement: React.FC = () => {
@@ -27,24 +27,45 @@ const ClassManagement: React.FC = () => {
         setCurrentClass(null);
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (currentClass) { // Editing existing class
-            updateClass({ ...currentClass, ...formData, maxSize: Number(formData.maxSize) });
-        } else { // Adding new class
-            const newClass: SchoolClass = {
-                id: `CLASS_${Date.now()}`,
-                ...formData,
-                maxSize: Number(formData.maxSize),
-            };
-            addClass(newClass);
+        const url = currentClass 
+            ? `${API_BASE_URL}/api/classes/${currentClass.id}` 
+            : `${API_BASE_URL}/api/classes`;
+        const method = currentClass ? 'PUT' : 'POST';
+        
+        try {
+            const response = await fetch(url, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...formData, maxSize: Number(formData.maxSize) }),
+            });
+            if (!response.ok) throw new Error('Failed to save class');
+            const savedClass = await response.json();
+            if (currentClass) {
+                updateClass(savedClass);
+            } else {
+                addClass(savedClass);
+            }
+            closeModal();
+        } catch (error) {
+            console.error(error);
+            alert("Lỗi khi lưu thông tin lớp.");
         }
-        closeModal();
     };
 
-    const handleDelete = (classId: string) => {
+    const handleDelete = async (classId: string) => {
         if (window.confirm("Bạn có chắc chắn muốn xóa lớp này không?")) {
-            deleteClass(classId);
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/classes/${classId}`, {
+                    method: 'DELETE',
+                });
+                if (!response.ok) throw new Error('Failed to delete class');
+                deleteClass(classId);
+            } catch (error) {
+                console.error(error);
+                alert("Lỗi khi xóa lớp.");
+            }
         }
     }
 

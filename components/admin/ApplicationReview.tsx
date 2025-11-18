@@ -1,5 +1,5 @@
 import React, { useContext, useState, useMemo } from 'react';
-import { AppContext } from '../../App';
+import { AppContext, API_BASE_URL } from '../../App';
 import type { Application } from '../../types';
 import { ApplicationStatus } from '../../types';
 import ApplicationDetailModal from './ApplicationDetailModal';
@@ -9,18 +9,28 @@ const ApplicationReview: React.FC = () => {
     const [filterStatus, setFilterStatus] = useState<ApplicationStatus | 'all'>('all');
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [selectedApp, setSelectedApp] = useState<Application | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
 
-    const handleApprove = (app: Application) => {
-        appContext!.updateApplication({ ...app, status: ApplicationStatus.APPROVED });
-        setIsDetailModalOpen(false);
-    };
-
-    const handleReject = (app: Application, reason: string) => {
-        if (reason) {
-            appContext!.updateApplication({ ...app, status: ApplicationStatus.REJECTED, rejectionReason: reason });
+    const handleUpdateStatus = async (app: Application, status: ApplicationStatus, reason?: string) => {
+        const updatedApp = { ...app, status, rejectionReason: reason || app.rejectionReason };
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/applications/${app.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatedApp),
+            });
+            if (!response.ok) throw new Error('Failed to update application');
+            const data = await response.json();
+            appContext!.updateApplication(data);
             setIsDetailModalOpen(false);
+        } catch (error) {
+            console.error(error);
+            alert("Đã xảy ra lỗi khi cập nhật hồ sơ.");
         }
     };
+
+    const handleApprove = (app: Application) => handleUpdateStatus(app, ApplicationStatus.APPROVED);
+    const handleReject = (app: Application, reason: string) => handleUpdateStatus(app, ApplicationStatus.REJECTED, reason);
     
     const openDetailModal = (app: Application) => {
         setSelectedApp(app);
@@ -28,9 +38,19 @@ const ApplicationReview: React.FC = () => {
     }
     
     const filteredApplications = useMemo(() => {
-        if (filterStatus === 'all') return appContext!.applications;
-        return appContext!.applications.filter(app => app.status === filterStatus);
-    }, [appContext, filterStatus]);
+        let apps = appContext!.applications;
+        if (filterStatus !== 'all') {
+            apps = apps.filter(app => app.status === filterStatus);
+        }
+        if (searchQuery) {
+            const lowercasedQuery = searchQuery.toLowerCase();
+            apps = apps.filter(app => 
+                app.studentName.toLowerCase().includes(lowercasedQuery) || 
+                app.id.toLowerCase().includes(lowercasedQuery)
+            );
+        }
+        return apps;
+    }, [appContext, filterStatus, searchQuery]);
     
     const getStatusColor = (status: ApplicationStatus) => {
         switch (status) {
@@ -47,14 +67,25 @@ const ApplicationReview: React.FC = () => {
             <div className="bg-white p-6 rounded-lg shadow-lg">
                 <h2 className="text-xl font-bold text-gray-800 mb-4">Danh sách hồ sơ cần duyệt</h2>
                 
-                {/* Filter controls */}
-                <div className="flex space-x-2 mb-4">
-                    <button onClick={() => setFilterStatus('all')} className={`px-3 py-1 text-sm rounded-full ${filterStatus === 'all' ? 'bg-primary text-white' : 'bg-gray-200'}`}>Tất cả</button>
-                    {Object.values(ApplicationStatus).map(status => (
-                        <button key={status} onClick={() => setFilterStatus(status)} className={`px-3 py-1 text-sm rounded-full ${filterStatus === status ? 'bg-primary text-white' : 'bg-gray-200'}`}>
-                            {status}
-                        </button>
-                    ))}
+                <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
+                     <div className="flex space-x-2 flex-wrap">
+                        <button onClick={() => setFilterStatus('all')} className={`px-3 py-1 text-sm rounded-full ${filterStatus === 'all' ? 'bg-primary text-white' : 'bg-gray-200'}`}>Tất cả</button>
+                        {Object.values(ApplicationStatus).map(status => (
+                            <button key={status} onClick={() => setFilterStatus(status)} className={`px-3 py-1 text-sm rounded-full ${filterStatus === status ? 'bg-primary text-white' : 'bg-gray-200'}`}>
+                                {status}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="relative w-full sm:w-64">
+                        <input
+                            type="text"
+                            placeholder="Tìm theo tên hoặc mã HS..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full pl-4 pr-10 py-2 border border-gray-300 rounded-full focus:ring-primary focus:border-primary"
+                        />
+                         <svg className="w-5 h-5 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </div>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -73,7 +104,7 @@ const ApplicationReview: React.FC = () => {
                                 <tr key={app.id}>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{app.id}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{app.studentName}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{app.submittedAt.toLocaleDateString('vi-VN')}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(app.submittedAt).toLocaleDateString('vi-VN')}</td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(app.status)}`}>
                                             {app.status}

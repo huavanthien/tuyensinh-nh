@@ -1,6 +1,5 @@
-
-import React, { useContext } from 'react';
-import { AppContext } from '../../App';
+import React, { useContext, useState } from 'react';
+import { AppContext, API_BASE_URL } from '../../App';
 
 interface WelcomeScreenProps {
     onStartRegistration: () => void;
@@ -8,7 +7,39 @@ interface WelcomeScreenProps {
 }
 
 const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onStartRegistration, onCheckStatus }) => {
-    const { announcement, guidelines } = useContext(AppContext)!;
+    const appContext = useContext(AppContext);
+    const [isDownloading, setIsDownloading] = useState(false);
+
+    if (!appContext || !appContext.announcement) {
+        return <div>Đang tải thông báo...</div>;
+    }
+
+    const { announcement, guidelines } = appContext;
+
+    const handleDownload = async () => {
+        if (!announcement.attachmentUrl || !announcement.attachmentName) return;
+        setIsDownloading(true);
+        try {
+            const fileUrl = `${API_BASE_URL}${announcement.attachmentUrl}`;
+            const response = await fetch(fileUrl);
+            if (!response.ok) throw new Error('Network response was not ok.');
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = announcement.attachmentName;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } catch (error) {
+            console.error("Download failed:", error);
+            alert("Tải tệp thất bại. Vui lòng thử lại.");
+        } finally {
+            setIsDownloading(false);
+        }
+    };
     
     return (
         <div className="bg-white p-8 rounded-lg shadow-lg max-w-4xl mx-auto">
@@ -31,14 +62,14 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onStartRegistration, onCh
                     </ul>
                     {announcement.attachmentUrl && (
                         <div className="mt-4">
-                            <a
-                                href={announcement.attachmentUrl}
-                                download={announcement.attachmentName}
-                                className="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-secondary hover:bg-opacity-90 transition-colors"
+                            <button
+                                onClick={handleDownload}
+                                disabled={isDownloading}
+                                className="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-secondary hover:bg-opacity-90 transition-colors disabled:bg-gray-400"
                             >
                                 <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                                Tải về Thông báo chi tiết
-                            </a>
+                                {isDownloading ? 'Đang tải...' : 'Tải về Thông báo chi tiết'}
+                            </button>
                         </div>
                     )}
                 </div>
