@@ -8,11 +8,36 @@ const { v4: uuidv4 } = require('uuid');
 const app = express();
 const PORT = process.env.PORT || 3001;
 const DB_PATH = path.join(__dirname, 'db.json');
-const allowedOrigins = [
-  'https://tuyentinh-vercel.app', // Domain chính xác của Frontend
-  // Thêm các domain khác nếu cần, ví dụ: 'http://localhost:3000' khi dev
-]
 
+// 1. Định nghĩa các nguồn (Origins) được phép
+const allowedOrigins = [
+    'https://tuyensinh-nh.vercel.app', // Domain chính thức trên Vercel
+    'http://localhost:3000'           // Thêm localhost để dễ dàng phát triển (Development)
+    // Thêm các domain khác nếu có
+];
+
+const corsOptions = {
+    // Hàm kiểm tra xem Origin gửi yêu cầu có nằm trong danh sách được phép không
+    origin: function (origin, callback) {
+        // Cho phép yêu cầu nếu origin có trong danh sách
+        // Hoặc cho phép nếu origin là undefined (thường là các yêu cầu từ cùng một nguồn hoặc Postman)
+        if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+            callback(null, true);
+        } else {
+            // Chặn các yêu cầu từ nguồn không được phép
+            callback(new Error('Not allowed by CORS')); 
+        }
+    },
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE', // Các phương thức HTTP được phép
+    credentials: true // Quan trọng nếu bạn gửi cookies hoặc Authorization header
+};
+
+// 2. Áp dụng middleware CORS với các tùy chọn
+app.use(cors(corsOptions));
+
+// ... Khai báo routes của bạn (ví dụ: /api/data) ...
+
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 // --- Middleware ---
 app.use(cors());
 app.use(express.json());
