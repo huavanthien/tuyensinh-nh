@@ -40,12 +40,22 @@ const ParentPortal: React.FC = () => {
             case 'form_success':
                 if (!lastSubmittedApplication) return null;
 
+                const removeAccents = (str: string) => {
+                  return str
+                    .normalize("NFD")
+                    .replace(/[\u0300-\u036f]/g, "")
+                    .replace(/đ/g, "d")
+                    .replace(/Đ/g, "D");
+                };
+
+                const studentNameWithoutAccents = removeAccents(lastSubmittedApplication.studentName);
+
                 const transferInfo = {
                     bin: '970418', // VietinBank BIN
                     accountNo: '111222333444',
                     accountName: 'TRUONG TIEU HOC NGUYEN HUE',
                     amount: 200000, // Lệ phí tuyển sinh giả định
-                    description: `${lastSubmittedApplication.id} ${lastSubmittedApplication.studentName}`
+                    description: `${lastSubmittedApplication.id} ${studentNameWithoutAccents}`
                 };
 
                 const qrUrl = `https://api.vietqr.io/v2/generate?accountNo=${transferInfo.accountNo}&accountName=${encodeURIComponent(transferInfo.accountName)}&acqId=${transferInfo.bin}&amount=${transferInfo.amount}&addInfo=${encodeURIComponent(transferInfo.description)}&template=compact`;

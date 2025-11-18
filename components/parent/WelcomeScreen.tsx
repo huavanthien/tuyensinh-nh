@@ -14,7 +14,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onStartRegistration, onCh
         <div className="bg-white p-8 rounded-lg shadow-lg max-w-4xl mx-auto">
             <div className="text-center mb-8">
                  <h1 className="text-3xl font-bold text-primary">{announcement.title}</h1>
-                 <p className="text-gray-600 mt-2">Trường Tiểu học Nguyễn Huệ (Đắk Wil, Cư Jút, Đắk Nông)</p>
+                 <p className="text-gray-600 mt-2">Trường Tiểu học Nguyễn Huệ (xã Đắk Wil, tỉnh Lâm Đồng)</p>
             </div>
 
             <div className="grid md:grid-cols-2 gap-8">
