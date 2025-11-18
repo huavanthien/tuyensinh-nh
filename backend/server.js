@@ -8,6 +8,10 @@ const { v4: uuidv4 } = require('uuid');
 const app = express();
 const PORT = process.env.PORT || 3001;
 const DB_PATH = path.join(__dirname, 'db.json');
+const allowedOrigins = [
+  'https://tuyentinh-vercel.app', // Domain chính xác của Frontend
+  // Thêm các domain khác nếu cần, ví dụ: 'http://localhost:3000' khi dev
+]
 
 // --- Middleware ---
 app.use(cors());
