@@ -7,7 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT
 const DB_PATH = path.join(__dirname, 'db.json');
 
 // 1. Định nghĩa các nguồn (Origins) được phép
