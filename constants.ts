@@ -91,6 +91,8 @@ export const MOCK_ANNOUNCEMENT: Announcement = {
     { label: "Thời gian", value: "Từ ngày 01/08/2024 đến hết ngày 15/08/2024." },
     { label: "Hình thức", value: "Đăng ký trực tuyến qua cổng thông tin này." },
   ],
+  attachmentUrl: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+  attachmentName: "Don_xin_nhap_hoc.pdf",
 };
 
 export const MOCK_GUIDELINES: Guideline[] = [
