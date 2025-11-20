@@ -1,5 +1,5 @@
 
-require('dotenv').config(); // Nạp biến môi trường ngay dòng đầu tiên
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
@@ -7,10 +7,10 @@ const path = require('path');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const fetch = require('node-fetch');
+const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const DB_PATH = path.join(__dirname, 'db.json');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
 // --- Ensure Uploads Directory Exists ---
@@ -19,21 +19,37 @@ if (!fs.existsSync(UPLOADS_DIR)) {
     console.log('Created uploads directory.');
 }
 
+// --- PostgreSQL Setup ---
+if (!process.env.DATABASE_URL) {
+    console.warn("WARNING: DATABASE_URL environment variable is not set. Database features will fail.");
+}
+
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
+
+// Test DB Connection
+pool.connect((err, client, release) => {
+    if (err) {
+        console.error('Error acquiring client', err.stack);
+    } else {
+        console.log('Successfully connected to PostgreSQL Database on Render/Local');
+        release();
+    }
+});
+
 // --- Twilio Setup ---
 const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
 const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
-
-// Kiểm tra xem cấu hình có đầy đủ không
 const isTwilioConfigured = !!(twilioAccountSid && twilioAuthToken && twilioPhoneNumber);
 
-console.log('---------------------------------------');
-console.log('Kiểm tra cấu hình Twilio:');
-console.log('- Account SID:', twilioAccountSid ? 'Đã nạp' : 'Thiếu');
-console.log('- Auth Token:', twilioAuthToken ? 'Đã nạp' : 'Thiếu');
-console.log('- Phone Number:', twilioPhoneNumber ? twilioPhoneNumber : 'Thiếu');
-console.log('- Trạng thái:', isTwilioConfigured ? 'SẴN SÀNG' : 'CHƯA CẤU HÌNH (Sẽ chạy chế độ giả lập)');
-console.log('---------------------------------------');
+if (isTwilioConfigured) {
+    console.log("Twilio is configured. OTPs will be sent via SMS.");
+} else {
+    console.log("Twilio NOT configured. OTPs will be shown in Console logs.");
+}
 
 let twilioClient = null;
 if (isTwilioConfigured) {
@@ -41,38 +57,17 @@ if (isTwilioConfigured) {
         twilioClient = require('twilio')(twilioAccountSid, twilioAuthToken);
     } catch (e) {
         console.error("Lỗi khởi tạo Twilio Client:", e);
-        isTwilioConfigured = false;
     }
 }
 
-// --- In-memory OTP store ---
-const otpStore = {}; 
-
 // --- Middleware ---
-app.use(cors({
-    origin: '*', 
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
-
+app.use(cors()); // Allow all origins for simplicity in this setup
 app.use(express.json());
 app.use('/uploads', express.static(UPLOADS_DIR));
 
-// --- Database Helpers ---
-const readDB = () => {
-    if (!fs.existsSync(DB_PATH)) {
-        const initialData = { applications: [], classes: [], announcement: {}, guidelines: [], settings: {} };
-        fs.writeFileSync(DB_PATH, JSON.stringify(initialData, null, 2));
-    }
-    return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
-};
-const writeDB = (data) => fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
-
-// --- Multer Setup for File Uploads ---
+// --- Multer Setup ---
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, UPLOADS_DIR);
-    },
+    destination: (req, file, cb) => cb(null, UPLOADS_DIR),
     filename: (req, file, cb) => {
         const safeName = file.originalname.replace(/[^a-zA-Z0-9.]/g, '_');
         cb(null, `${Date.now()}-${uuidv4()}-${safeName}`);
@@ -80,331 +75,464 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+// --- Helper: Map DB Row to Frontend Object ---
+const mapAppFromDB = (row) => ({
+    id: row.id,
+    studentName: row.student_name,
+    studentDob: row.student_dob, // Date object
+    studentGender: row.student_gender,
+    studentPID: row.student_pid || '',
+    ethnicity: row.ethnicity || '',
+    placeOfBirth: row.place_of_birth || '',
+    hometown: row.hometown || '',
+    parentName: row.parent_name,
+    parentPhone: row.parent_phone,
+    address: row.address,
+    enrollmentType: row.enrollment_type,
+    enrollmentRoute: row.enrollment_route,
+    isPriority: row.is_priority,
+    status: row.status,
+    submittedAt: row.submitted_at,
+    birthCertUrl: row.birth_cert_url,
+    residenceProofUrl: row.residence_proof_url,
+    rejectionReason: row.rejection_reason,
+    classId: row.class_id
+});
 
-// --- Root Route for Health Check ---
+// --- Routes ---
+
 app.get('/', (req, res) => {
     res.send(`
         <h1>Backend Server is Running on Render</h1>
         <p>Status: Online</p>
-        <p>Twilio Configured: ${isTwilioConfigured ? '<span style="color:green">Yes</span>' : '<span style="color:red">No</span>'}</p>
+        <p>Twilio Configured: ${isTwilioConfigured ? 'Yes' : 'No'}</p>
+        <p>Node Version: ${process.version}</p>
     `);
 });
 
-
-// --- API Routes ---
-
-// GET all data
-app.get('/api/data', (req, res) => {
+// GET ALL DATA (Aggregated)
+app.get('/api/data', async (req, res) => {
     try {
-        const db = readDB();
-        if (!db.settings) {
-            db.settings = { schoolName: "TRƯỜNG TIỂU HỌC NGUYỄN HUỆ", logoUrl: null, bannerUrl: null };
-            writeDB(db);
+        const client = await pool.connect();
+        try {
+            const [appsRes, classesRes, contentRes, settingsRes] = await Promise.all([
+                client.query('SELECT * FROM applications ORDER BY submitted_at DESC'),
+                client.query('SELECT * FROM classes ORDER BY name ASC'),
+                client.query('SELECT * FROM site_content WHERE id = 1'),
+                client.query('SELECT * FROM site_settings WHERE id = 1')
+            ]);
+
+            const content = contentRes.rows[0] || {};
+            const settings = settingsRes.rows[0] || {};
+
+            res.json({
+                applications: appsRes.rows.map(mapAppFromDB),
+                classes: classesRes.rows.map(c => ({ id: c.id, name: c.name, maxSize: c.max_size })),
+                announcement: {
+                    title: content.announcement_title || "Thông báo",
+                    details: content.announcement_details || [],
+                    attachmentUrl: content.attachment_url,
+                    attachmentName: content.attachment_name,
+                    admittedListUrl: content.admitted_list_url,
+                    admittedListName: content.admitted_list_name
+                },
+                guidelines: content.guidelines || [],
+                settings: {
+                    schoolName: settings.school_name || "TRƯỜNG TIỂU HỌC NGUYỄN HUỆ",
+                    logoUrl: settings.logo_url,
+                    bannerUrl: settings.banner_url
+                }
+            });
+        } finally {
+            client.release();
         }
-        res.json(db);
     } catch (error) {
-        console.error("Error reading data:", error);
-        res.status(500).json({ message: "Error reading data", error: error.toString() });
+        console.error("Database Error:", error);
+        res.status(500).json({ message: "Lỗi kết nối cơ sở dữ liệu" });
     }
 });
 
-// POST a new application
-app.post('/api/applications', upload.fields([{ name: 'birthCert', maxCount: 1 }, { name: 'residenceProof', maxCount: 1 }]), (req, res) => {
+// POST Application
+app.post('/api/applications', upload.fields([{ name: 'birthCert', maxCount: 1 }, { name: 'residenceProof', maxCount: 1 }]), async (req, res) => {
     try {
-        const db = readDB();
-        const applicationsCount = db.applications.length;
-        const newApplication = {
-            ...req.body,
-            id: `NH25${String(applicationsCount + 1).padStart(3, '0')}`,
-            isPriority: req.body.isPriority === 'on',
-            status: 'Đã nộp',
-            submittedAt: new Date(),
-            birthCertUrl: req.files.birthCert ? `/uploads/${req.files.birthCert[0].filename}` : null,
-            residenceProofUrl: req.files.residenceProof ? `/uploads/${req.files.residenceProof[0].filename}` : null,
-        };
-        db.applications.push(newApplication);
-        writeDB(db);
-        res.status(201).json(newApplication);
-    } catch (error) {
-        console.error("Error creating application:", error);
-        res.status(500).json({ message: "Error creating application", error: error.toString() });
-    }
-});
+        const client = await pool.connect();
+        try {
+            // Generate ID: NH25xxx
+            const countRes = await client.query('SELECT COUNT(*) FROM applications');
+            const count = parseInt(countRes.rows[0].count, 10);
+            const newId = `NH25${String(count + 1).padStart(3, '0')}`;
+            
+            const { 
+                studentName, studentDob, studentGender, studentPID, ethnicity, placeOfBirth, hometown,
+                parentName, parentPhone, address, enrollmentType, enrollmentRoute, isPriority 
+            } = req.body;
 
-// PUT (update) an application
-app.put('/api/applications/:id', (req, res) => {
-    try {
-        const db = readDB();
-        const appId = req.params.id;
-        const appIndex = db.applications.findIndex(app => app.id === appId);
-        if (appIndex === -1) {
-            return res.status(404).json({ message: 'Application not found' });
+            const birthCertUrl = req.files.birthCert ? `/uploads/${req.files.birthCert[0].filename}` : null;
+            const residenceProofUrl = req.files.residenceProof ? `/uploads/${req.files.residenceProof[0].filename}` : null;
+
+            const query = `
+                INSERT INTO applications (
+                    id, student_name, student_dob, student_gender, student_pid, ethnicity, place_of_birth, hometown,
+                    parent_name, parent_phone, address, enrollment_type, enrollment_route, is_priority,
+                    status, submitted_at, birth_cert_url, residence_proof_url
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'Đã nộp', NOW(), $15, $16)
+                RETURNING *
+            `;
+            
+            const values = [
+                newId, studentName, studentDob, studentGender, studentPID, ethnicity, placeOfBirth, hometown,
+                parentName, parentPhone, address, enrollmentType, enrollmentRoute, isPriority === 'on',
+                birthCertUrl, residenceProofUrl
+            ];
+
+            const result = await client.query(query, values);
+            res.status(201).json(mapAppFromDB(result.rows[0]));
+        } finally {
+            client.release();
         }
-        db.applications[appIndex] = { ...db.applications[appIndex], ...req.body };
-        writeDB(db);
-        res.json(db.applications[appIndex]);
     } catch (error) {
-        res.status(500).json({ message: "Error updating application", error: error.toString() });
+        console.error(error);
+        res.status(500).json({ message: "Lỗi khi lưu hồ sơ" });
     }
 });
 
-// PUT (bulk update) applications
-app.put('/api/applications/bulk-update', (req, res) => {
+// PUT Application
+app.put('/api/applications/:id', async (req, res) => {
     try {
-        const { updates } = req.body;
-        if (!Array.isArray(updates)) {
-            return res.status(400).json({ message: 'Invalid payload' });
+        const { status, rejectionReason, classId } = req.body;
+        const client = await pool.connect();
+        try {
+            const query = `
+                UPDATE applications 
+                SET status = COALESCE($1, status),
+                    rejection_reason = COALESCE($2, rejection_reason),
+                    class_id = COALESCE($3, class_id)
+                WHERE id = $4
+                RETURNING *
+            `;
+            const result = await client.query(query, [status, rejectionReason, classId, req.params.id]);
+            
+            if (result.rows.length === 0) return res.status(404).json({ message: "Không tìm thấy hồ sơ" });
+            res.json(mapAppFromDB(result.rows[0]));
+        } finally {
+            client.release();
         }
-        const db = readDB();
-        const updatedApps = [];
-        updates.forEach(update => {
-            const appIndex = db.applications.findIndex(app => app.id === update.id);
-            if (appIndex !== -1) {
-                db.applications[appIndex] = { ...db.applications[appIndex], ...update };
-                updatedApps.push(db.applications[appIndex]);
-            }
-        });
-        writeDB(db);
-        res.json(updatedApps);
     } catch (error) {
-        res.status(500).json({ message: "Error bulk updating applications", error: error.toString() });
+        res.status(500).json({ message: "Lỗi cập nhật hồ sơ" });
     }
 });
 
-// POST confirm payment
-app.post('/api/applications/:id/confirm-payment', (req, res) => {
+// PUT Bulk Update (Class Assignment)
+app.put('/api/applications/bulk-update', async (req, res) => {
+    const { updates } = req.body; // Array of { id, classId, status }
+    if (!Array.isArray(updates)) return res.status(400).json({ message: "Dữ liệu không hợp lệ" });
+
+    const client = await pool.connect();
     try {
-        const db = readDB();
-        const appId = req.params.id;
-        const appIndex = db.applications.findIndex(app => app.id === appId);
-        if (appIndex === -1) {
-            return res.status(404).json({ message: 'Application not found' });
+        await client.query('BEGIN');
+        const results = [];
+        for (const update of updates) {
+            const res = await client.query(
+                'UPDATE applications SET class_id = $1, status = $2 WHERE id = $3 RETURNING *',
+                [update.classId, update.status, update.id]
+            );
+            if (res.rows[0]) results.push(mapAppFromDB(res.rows[0]));
         }
-        db.applications[appIndex].status = 'Đã nộp lệ phí';
-        writeDB(db);
-        res.json(db.applications[appIndex]);
+        await client.query('COMMIT');
+        res.json(results);
     } catch (error) {
-        res.status(500).json({ message: "Error confirming payment", error: error.toString() });
+        await client.query('ROLLBACK');
+        res.status(500).json({ message: "Lỗi phân lớp hàng loạt" });
+    } finally {
+        client.release();
     }
 });
 
-
-// --- Class Management ---
-app.post('/api/classes', (req, res) => {
+// CONFIRM PAYMENT
+app.post('/api/applications/:id/confirm-payment', async (req, res) => {
     try {
-        const db = readDB();
-        const newClass = { ...req.body, id: `CLASS_${Date.now()}` };
-        db.classes.push(newClass);
-        writeDB(db);
-        res.status(201).json(newClass);
+        const client = await pool.connect();
+        const resDb = await client.query(
+            "UPDATE applications SET status = 'Đã nộp lệ phí' WHERE id = $1 RETURNING *",
+            [req.params.id]
+        );
+        client.release();
+        if (resDb.rows.length === 0) return res.status(404).json({ message: "Không tìm thấy hồ sơ" });
+        res.json(mapAppFromDB(resDb.rows[0]));
     } catch (error) {
-        res.status(500).json({ message: 'Error creating class', error: error.toString() });
+        res.status(500).json({ message: "Lỗi xác nhận thanh toán" });
     }
 });
 
-app.put('/api/classes/:id', (req, res) => {
+// --- Class Routes ---
+app.post('/api/classes', async (req, res) => {
     try {
-        const db = readDB();
-        const classIndex = db.classes.findIndex(c => c.id === req.params.id);
-        if (classIndex === -1) return res.status(404).json({ message: 'Class not found' });
-        db.classes[classIndex] = { ...db.classes[classIndex], ...req.body };
-        writeDB(db);
-        res.json(db.classes[classIndex]);
+        const { name, maxSize } = req.body;
+        const id = `CLASS_${Date.now()}`;
+        const client = await pool.connect();
+        const result = await client.query(
+            'INSERT INTO classes (id, name, max_size) VALUES ($1, $2, $3) RETURNING *',
+            [id, name, maxSize]
+        );
+        client.release();
+        const row = result.rows[0];
+        res.status(201).json({ id: row.id, name: row.name, maxSize: row.max_size });
     } catch (error) {
-        res.status(500).json({ message: 'Error updating class', error: error.toString() });
+        res.status(500).json({ message: "Lỗi tạo lớp" });
     }
 });
 
-app.delete('/api/classes/:id', (req, res) => {
+app.put('/api/classes/:id', async (req, res) => {
     try {
-        const db = readDB();
-        const studentCount = db.applications.filter(app => app.classId === req.params.id).length;
-        if (studentCount > 0) {
-            return res.status(400).json({ message: 'Cannot delete class with assigned students' });
+        const { name, maxSize } = req.body;
+        const client = await pool.connect();
+        const result = await client.query(
+            'UPDATE classes SET name = $1, max_size = $2 WHERE id = $3 RETURNING *',
+            [name, maxSize, req.params.id]
+        );
+        client.release();
+        const row = result.rows[0];
+        res.json({ id: row.id, name: row.name, maxSize: row.max_size });
+    } catch (error) {
+        res.status(500).json({ message: "Lỗi cập nhật lớp" });
+    }
+});
+
+app.delete('/api/classes/:id', async (req, res) => {
+    try {
+        const client = await pool.connect();
+        // Check if students exist
+        const check = await client.query('SELECT 1 FROM applications WHERE class_id = $1', [req.params.id]);
+        if (check.rowCount > 0) {
+            client.release();
+            return res.status(400).json({ message: "Không thể xóa lớp đang có học sinh" });
         }
-        db.classes = db.classes.filter(c => c.id !== req.params.id);
-        writeDB(db);
+        await client.query('DELETE FROM classes WHERE id = $1', [req.params.id]);
+        client.release();
         res.status(204).send();
     } catch (error) {
-        res.status(500).json({ message: 'Error deleting class', error: error.toString() });
+        res.status(500).json({ message: "Lỗi xóa lớp" });
     }
 });
 
-
-// --- Site Content Management ---
-app.put('/api/site-content', upload.fields([{ name: 'attachment', maxCount: 1 }, { name: 'admittedList', maxCount: 1 }]), (req, res) => {
+// --- Site Content ---
+app.put('/api/site-content', upload.fields([{ name: 'attachment', maxCount: 1 }, { name: 'admittedList', maxCount: 1 }]), async (req, res) => {
     try {
-        const db = readDB();
-        const announcementData = JSON.parse(req.body.announcementData);
-        const guidelinesData = JSON.parse(req.body.guidelinesData);
+        const announcement = JSON.parse(req.body.announcementData);
+        const guidelines = JSON.parse(req.body.guidelinesData);
         
+        // Build update query components
+        let attachmentUrl = undefined;
+        let attachmentName = undefined;
+        let admittedListUrl = undefined;
+        let admittedListName = undefined;
+
+        const client = await pool.connect();
+        // Fetch current to keep existing if not changing
+        const currentRes = await client.query('SELECT * FROM site_content WHERE id = 1');
+        const current = currentRes.rows[0] || {};
+
         if (req.files && req.files['attachment']) {
-            announcementData.attachmentUrl = `/uploads/${req.files['attachment'][0].filename}`;
-            announcementData.attachmentName = req.files['attachment'][0].originalname;
+            attachmentUrl = `/uploads/${req.files['attachment'][0].filename}`;
+            attachmentName = req.files['attachment'][0].originalname;
         } else if (req.body.removeAttachment === 'true') {
-            delete announcementData.attachmentUrl;
-            delete announcementData.attachmentName;
+            attachmentUrl = null;
+            attachmentName = null;
+        } else {
+            attachmentUrl = current.attachment_url;
+            attachmentName = current.attachment_name;
         }
 
         if (req.files && req.files['admittedList']) {
-            announcementData.admittedListUrl = `/uploads/${req.files['admittedList'][0].filename}`;
-            announcementData.admittedListName = req.files['admittedList'][0].originalname;
+            admittedListUrl = `/uploads/${req.files['admittedList'][0].filename}`;
+            admittedListName = req.files['admittedList'][0].originalname;
         } else if (req.body.removeAdmittedList === 'true') {
-            delete announcementData.admittedListUrl;
-            delete announcementData.admittedListName;
+            admittedListUrl = null;
+            admittedListName = null;
+        } else {
+            admittedListUrl = current.admitted_list_url;
+            admittedListName = current.admitted_list_name;
         }
 
-        db.announcement = announcementData;
-        db.guidelines = guidelinesData;
-        writeDB(db);
-        res.json({ announcement: db.announcement, guidelines: db.guidelines });
+        // Upsert
+        const query = `
+            INSERT INTO site_content (id, announcement_title, announcement_details, attachment_url, attachment_name, admitted_list_url, admitted_list_name, guidelines)
+            VALUES (1, $1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (id) DO UPDATE SET
+                announcement_title = EXCLUDED.announcement_title,
+                announcement_details = EXCLUDED.announcement_details,
+                attachment_url = EXCLUDED.attachment_url,
+                attachment_name = EXCLUDED.attachment_name,
+                admitted_list_url = EXCLUDED.admitted_list_url,
+                admitted_list_name = EXCLUDED.admitted_list_name,
+                guidelines = EXCLUDED.guidelines
+            RETURNING *
+        `;
+        
+        await client.query(query, [
+            announcement.title, 
+            JSON.stringify(announcement.details),
+            attachmentUrl, attachmentName, admittedListUrl, admittedListName,
+            JSON.stringify(guidelines)
+        ]);
+        
+        client.release();
+        res.json({ message: "Success" });
+
     } catch (error) {
-        res.status(500).json({ message: 'Error updating site content', error: error.toString() });
+        console.error(error);
+        res.status(500).json({ message: "Lỗi cập nhật nội dung" });
     }
 });
 
-// --- Settings Management ---
-app.put('/api/settings', upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), (req, res) => {
+// --- Settings ---
+app.put('/api/settings', upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), async (req, res) => {
     try {
-        const db = readDB();
-        let currentSettings = db.settings || { schoolName: "TRƯỜNG TIỂU HỌC NGUYỄN HUỆ", logoUrl: null, bannerUrl: null };
+        const client = await pool.connect();
+        const currentRes = await client.query('SELECT * FROM site_settings WHERE id = 1');
+        const current = currentRes.rows[0] || { school_name: "TRƯỜNG TIỂU HỌC NGUYỄN HUỆ" };
 
-        if (req.body.schoolName) {
-            currentSettings.schoolName = req.body.schoolName;
-        }
+        let schoolName = req.body.schoolName || current.school_name;
+        let logoUrl = current.logo_url;
+        let bannerUrl = current.banner_url;
 
-        const files = req.files || {};
+        const reqFiles = req.files || {}; // Safety check
 
-        if (files['logo'] && files['logo'][0]) {
-            currentSettings.logoUrl = `/uploads/${files['logo'][0].filename}`;
-        } else if (req.body.removeLogo === 'true') {
-            currentSettings.logoUrl = null;
-        }
+        if (reqFiles['logo']) logoUrl = `/uploads/${reqFiles['logo'][0].filename}`;
+        else if (req.body.removeLogo === 'true') logoUrl = null;
 
-        if (files['banner'] && files['banner'][0]) {
-            currentSettings.bannerUrl = `/uploads/${files['banner'][0].filename}`;
-        } else if (req.body.removeBanner === 'true') {
-            currentSettings.bannerUrl = null;
-        }
+        if (reqFiles['banner']) bannerUrl = `/uploads/${reqFiles['banner'][0].filename}`;
+        else if (req.body.removeBanner === 'true') bannerUrl = null;
 
-        db.settings = currentSettings;
-        writeDB(db);
-        res.json(db.settings);
+        const query = `
+            INSERT INTO site_settings (id, school_name, logo_url, banner_url)
+            VALUES (1, $1, $2, $3)
+            ON CONFLICT (id) DO UPDATE SET
+                school_name = EXCLUDED.school_name,
+                logo_url = EXCLUDED.logo_url,
+                banner_url = EXCLUDED.banner_url
+            RETURNING *
+        `;
+        
+        const result = await client.query(query, [schoolName, logoUrl, bannerUrl]);
+        client.release();
+        
+        const row = result.rows[0];
+        res.json({ schoolName: row.school_name, logoUrl: row.logo_url, bannerUrl: row.banner_url });
+
     } catch (error) {
-        console.error("Error updating settings:", error);
-        res.status(500).json({ message: 'Error updating settings', error: error.message });
+        console.error("Settings Update Error:", error);
+        res.status(500).json({ message: "Lỗi cập nhật cài đặt" });
     }
 });
 
-// --- Real OTP Auth ---
+// --- OTP Routes with DB ---
 app.post('/api/auth/send-otp', async (req, res) => {
     const { phoneNumber } = req.body;
-    if (!phoneNumber || !/^\d{10}$/.test(phoneNumber)) {
-        return res.status(400).json({ message: 'Số điện thoại không hợp lệ.' });
-    }
-
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expires = Date.now() + 5 * 60 * 1000;
-
-    otpStore[phoneNumber] = { otp, expires };
-    
-    if (!isTwilioConfigured) {
-        console.log(`[DEV MODE] OTP for ${phoneNumber}: ${otp}`);
-        return res.json({ message: 'OTP sent successfully (dev mode - check console).' });
-    }
+    const expiresAt = new Date(Date.now() + 5 * 60000); // 5 mins
 
     try {
-        // Định dạng lại số điện thoại cho Twilio (+84...)
-        let toPhoneNumber = phoneNumber;
-        if (toPhoneNumber.startsWith('0')) {
-            toPhoneNumber = '+84' + toPhoneNumber.substring(1);
+        const client = await pool.connect();
+        await client.query(
+            `INSERT INTO otp_codes (phone_number, otp_code, expires_at) 
+             VALUES ($1, $2, $3) 
+             ON CONFLICT (phone_number) DO UPDATE SET otp_code = $2, expires_at = $3`,
+            [phoneNumber, otp, expiresAt]
+        );
+        client.release();
+
+        // Send via Twilio or Fallback
+        if (!isTwilioConfigured) {
+            console.log(`[DEV MODE] OTP for ${phoneNumber}: ${otp}`);
+            return res.json({ message: 'Dev Mode', devOtp: otp });
         }
 
+        let toPhoneNumber = phoneNumber.startsWith('0') ? '+84' + phoneNumber.substring(1) : phoneNumber;
         await twilioClient.messages.create({
-            body: `Mã xác thực tuyển sinh: ${otp}. Mã có hiệu lực trong 5 phút.`,
+            body: `Mã xác thực: ${otp}`,
             from: twilioPhoneNumber,
             to: toPhoneNumber
         });
-        res.json({ message: 'Mã OTP đã được gửi tin nhắn đến số điện thoại của bạn.' });
+        res.json({ message: 'OTP Sent' });
+
     } catch (error) {
-        console.error('Twilio API Error:', error);
-        
-        // Fallback về chế độ giả lập nếu Twilio lỗi (để không chặn người dùng lúc demo)
+        console.error("Twilio Error:", error);
+        // If Twilio fails (e.g., unverified number), fall back to dev mode for testing
         if (error.code === 21608 || error.status === 400) {
-             console.log(`[FALLBACK DEV MODE] OTP for ${phoneNumber}: ${otp}`);
-             return res.json({ 
-                 message: 'Tài khoản Twilio dùng thử chỉ gửi được cho số đã xác minh. (Xem mã OTP trong Console Server)',
-                 devOtp: otp 
-            });
+            console.log(`[FALLBACK] Twilio failed. OTP for ${phoneNumber}: ${otp}`);
+            return res.json({ message: 'Twilio Error Fallback', devOtp: otp });
+        }
+        res.status(500).json({ message: "Lỗi gửi OTP" });
+    }
+});
+
+app.post('/api/auth/verify-otp', async (req, res) => {
+    const { phoneNumber, otp } = req.body;
+    try {
+        const client = await pool.connect();
+        const result = await client.query(
+            'SELECT * FROM otp_codes WHERE phone_number = $1', 
+            [phoneNumber]
+        );
+        
+        if (result.rows.length === 0) {
+            client.release();
+            return res.status(400).json({ message: "Mã OTP không hợp lệ" });
         }
 
-        res.status(500).json({ message: 'Lỗi hệ thống gửi tin nhắn. Vui lòng thử lại sau.' });
+        const record = result.rows[0];
+        if (new Date() > new Date(record.expires_at)) {
+            client.release();
+            return res.status(400).json({ message: "Mã OTP đã hết hạn" });
+        }
+
+        if (record.otp_code === otp) {
+            await client.query('DELETE FROM otp_codes WHERE phone_number = $1', [phoneNumber]);
+            client.release();
+            res.json({ message: "Login successful" });
+        } else {
+            client.release();
+            res.status(400).json({ message: "Sai mã OTP" });
+        }
+    } catch (error) {
+        res.status(500).json({ message: "Lỗi xác thực" });
     }
 });
 
-app.post('/api/auth/verify-otp', (req, res) => {
-    const { phoneNumber, otp } = req.body;
-    const storedOtpData = otpStore[phoneNumber];
-
-    if (!storedOtpData) {
-        return res.status(400).json({ message: 'Mã OTP không hợp lệ hoặc đã hết hạn.' });
-    }
-
-    if (Date.now() > storedOtpData.expires) {
-        delete otpStore[phoneNumber];
-        return res.status(400).json({ message: 'Mã OTP đã hết hạn. Vui lòng yêu cầu mã mới.' });
-    }
-
-    if (storedOtpData.otp === otp) {
-        delete otpStore[phoneNumber];
-        res.json({ message: 'Login successful.' });
-    } else {
-        res.status(400).json({ message: 'Mã OTP không chính xác. Vui lòng thử lại.' });
-    }
-});
-
-
-// --- QR Code Generation ---
-app.get('/api/qr-code/:applicationId', (req, res) => {
+// --- QR Code (Keep as is) ---
+app.get('/api/qr-code/:applicationId', async (req, res) => {
     try {
-        const db = readDB();
-        const application = db.applications.find(app => app.id === req.params.applicationId);
-        if (!application) return res.status(404).json({ message: 'Application not found' });
+        const client = await pool.connect();
+        const result = await client.query('SELECT student_name FROM applications WHERE id = $1', [req.params.applicationId]);
+        client.release();
         
-        const removeAccents = (str) => {
-            if (!str) return '';
-            return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D");
-        };
+        if (result.rows.length === 0) return res.status(404).json({ message: 'Application not found' });
+        
+        const app = result.rows[0];
+        const removeAccents = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D");
 
         const transferInfo = {
-            bin: '970405', // AgriBank
-            accountNo: '5304205050813',
-            accountName: 'HUA VAN THIEN',
+            bin: '970405', 
+            accountNo: '111222333444',
+            accountName: 'TRUONG TIEU HOC NGUYEN HUE',
             amount: 200000,
-            description: `${application.id} ${removeAccents(application.studentName)}`
+            description: `${req.params.applicationId} ${removeAccents(app.student_name)}`
         };
+        
         const qrUrl = `https://img.vietqr.io/image/${transferInfo.bin}-${transferInfo.accountNo}-compact.png?amount=${transferInfo.amount}&addInfo=${encodeURIComponent(transferInfo.description)}&accountName=${encodeURIComponent(transferInfo.accountName)}`;
-
-        fetch(qrUrl)
-            .then(qrRes => {
-                 if (!qrRes.ok) throw new Error(`VietQR API responded with status: ${qrRes.status}`);
-                 return qrRes.arrayBuffer();
-            })
-            .then(buffer => {
-                const base64 = Buffer.from(buffer).toString('base64');
-                res.json({ qrDataURL: `data:image/png;base64,${base64}` });
-            })
-            .catch(error => {
-                console.error("Failed to fetch QR code from VietQR:", error);
-                res.status(500).json({ message: 'Failed to generate QR code image' });
-            });
+        
+        const qrRes = await fetch(qrUrl);
+        const buffer = await qrRes.arrayBuffer();
+        const base64 = Buffer.from(buffer).toString('base64');
+        res.json({ qrDataURL: `data:image/png;base64,${base64}` });
 
     } catch(error) {
-        res.status(500).json({ message: 'Server error', error: error.toString() });
+        console.error("QR Error:", error);
+        res.status(500).json({ message: 'Server error' });
     }
 });
 
-// --- Server Start ---
 app.listen(PORT, () => {
-    console.log(`Backend server running on port ${PORT}`);
+    console.log(`Backend server running on port ${PORT} with PostgreSQL`);
 });
