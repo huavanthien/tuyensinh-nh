@@ -1,5 +1,5 @@
 
-require('dotenv').config();
+require('dotenv').config(); // Nạp biến môi trường ngay dòng đầu tiên
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
@@ -23,15 +23,32 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
 const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
-const isTwilioConfigured = twilioAccountSid && twilioAuthToken && twilioPhoneNumber;
-const twilioClient = isTwilioConfigured ? require('twilio')(twilioAccountSid, twilioAuthToken) : null;
+
+// Kiểm tra xem cấu hình có đầy đủ không
+const isTwilioConfigured = !!(twilioAccountSid && twilioAuthToken && twilioPhoneNumber);
+
+console.log('---------------------------------------');
+console.log('Kiểm tra cấu hình Twilio:');
+console.log('- Account SID:', twilioAccountSid ? 'Đã nạp' : 'Thiếu');
+console.log('- Auth Token:', twilioAuthToken ? 'Đã nạp' : 'Thiếu');
+console.log('- Phone Number:', twilioPhoneNumber ? twilioPhoneNumber : 'Thiếu');
+console.log('- Trạng thái:', isTwilioConfigured ? 'SẴN SÀNG' : 'CHƯA CẤU HÌNH (Sẽ chạy chế độ giả lập)');
+console.log('---------------------------------------');
+
+let twilioClient = null;
+if (isTwilioConfigured) {
+    try {
+        twilioClient = require('twilio')(twilioAccountSid, twilioAuthToken);
+    } catch (e) {
+        console.error("Lỗi khởi tạo Twilio Client:", e);
+        isTwilioConfigured = false;
+    }
+}
 
 // --- In-memory OTP store ---
 const otpStore = {}; 
 
 // --- Middleware ---
-// CORS Configuration: Allow requests from anywhere (simplest for initial deployment)
-// For higher security later, you can restrict this to your frontend domain.
 app.use(cors({
     origin: '*', 
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
@@ -57,7 +74,6 @@ const storage = multer.diskStorage({
         cb(null, UPLOADS_DIR);
     },
     filename: (req, file, cb) => {
-        // Sanitize filename to prevent issues
         const safeName = file.originalname.replace(/[^a-zA-Z0-9.]/g, '_');
         cb(null, `${Date.now()}-${uuidv4()}-${safeName}`);
     }
@@ -70,7 +86,7 @@ app.get('/', (req, res) => {
     res.send(`
         <h1>Backend Server is Running on Render</h1>
         <p>Status: Online</p>
-        <p>Twilio Configured: ${isTwilioConfigured ? 'Yes' : 'No'}</p>
+        <p>Twilio Configured: ${isTwilioConfigured ? '<span style="color:green">Yes</span>' : '<span style="color:red">No</span>'}</p>
     `);
 });
 
@@ -293,22 +309,36 @@ app.post('/api/auth/send-otp', async (req, res) => {
     otpStore[phoneNumber] = { otp, expires };
     
     if (!isTwilioConfigured) {
-        // In Production/Render logs, this will appear in the Dashboard logs
         console.log(`[DEV MODE] OTP for ${phoneNumber}: ${otp}`);
-        return res.json({ message: 'OTP sent successfully (dev mode).' });
+        return res.json({ message: 'OTP sent successfully (dev mode - check console).' });
     }
 
     try {
-        const toPhoneNumber = `+84${phoneNumber.substring(1)}`;
+        // Định dạng lại số điện thoại cho Twilio (+84...)
+        let toPhoneNumber = phoneNumber;
+        if (toPhoneNumber.startsWith('0')) {
+            toPhoneNumber = '+84' + toPhoneNumber.substring(1);
+        }
+
         await twilioClient.messages.create({
-            body: `Mã xác thực tuyển sinh của bạn là: ${otp}`,
+            body: `Mã xác thực tuyển sinh: ${otp}. Mã có hiệu lực trong 5 phút.`,
             from: twilioPhoneNumber,
             to: toPhoneNumber
         });
-        res.json({ message: 'Mã OTP đã được gửi đến điện thoại của bạn.' });
+        res.json({ message: 'Mã OTP đã được gửi tin nhắn đến số điện thoại của bạn.' });
     } catch (error) {
-        console.error('Twilio Error:', error);
-        res.status(500).json({ message: 'Không thể gửi mã OTP. Vui lòng thử lại sau.' });
+        console.error('Twilio API Error:', error);
+        
+        // Fallback về chế độ giả lập nếu Twilio lỗi (để không chặn người dùng lúc demo)
+        if (error.code === 21608 || error.status === 400) {
+             console.log(`[FALLBACK DEV MODE] OTP for ${phoneNumber}: ${otp}`);
+             return res.json({ 
+                 message: 'Tài khoản Twilio dùng thử chỉ gửi được cho số đã xác minh. (Xem mã OTP trong Console Server)',
+                 devOtp: otp 
+            });
+        }
+
+        res.status(500).json({ message: 'Lỗi hệ thống gửi tin nhắn. Vui lòng thử lại sau.' });
     }
 });
 
