@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import type { Application } from '../../types';
 import ParentLogin from './ParentLogin';
 import EnrollmentForm from './EnrollmentForm';
 import StatusCheck from './StatusCheck';
 import StatusResult from './StatusResult';
 import WelcomeScreen from './WelcomeScreen';
-import { API_BASE_URL } from '../../App';
+import { API_BASE_URL, AppContext } from '../../App';
 
 
 type ParentView = 'welcome' | 'login' | 'form' | 'status_check' | 'status_result' | 'form_success';
@@ -54,9 +54,9 @@ const PaymentInfo: React.FC<{ application: Application }> = ({ application }) =>
                 </div>
 
                 <div className="text-left space-y-2 text-gray-700">
-                    <p><strong>Ngân hàng:</strong> Ngân hàng TMCP Công Thương Việt Nam (VietinBank)</p>
-                    <p><strong>Số tài khoản:</strong> <span className="font-mono">111222333444</span></p>
-                    <p><strong>Chủ tài khoản:</strong> TRUONG TIEU HOC NGUYEN HUE</p>
+                    <p><strong>Ngân hàng:</strong> (AgriBank)</p>
+                    <p><strong>Số tài khoản:</strong> <span className="font-mono">5304205050813</span></p>
+                    <p><strong>Chủ tài khoản:</strong> HUA VAN THIEN</p>
                     <p><strong>Số tiền:</strong> <span className="font-bold text-danger">200.000 VNĐ</span></p>
                     <p className="bg-yellow-100 p-2 rounded-md">
                         <strong>Nội dung:</strong> <span className="font-mono font-semibold text-primary">{description}</span>
@@ -65,6 +65,60 @@ const PaymentInfo: React.FC<{ application: Application }> = ({ application }) =>
             </div>
             <p className="text-sm text-gray-500 mt-4">Quét mã QR bằng ứng dụng ngân hàng của bạn để thanh toán nhanh chóng và chính xác.</p>
         </div>
+    );
+};
+
+const PaymentView: React.FC<{ application: Application }> = ({ application }) => {
+    const appContext = useContext(AppContext);
+    const [isConfirmed, setIsConfirmed] = useState(false);
+    const [isConfirming, setIsConfirming] = useState(false);
+    const [error, setError] = useState('');
+
+    const handleConfirmPayment = async () => {
+        setIsConfirming(true);
+        setError('');
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/applications/${application.id}/confirm-payment`, {
+                method: 'POST',
+            });
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.message || 'Xác nhận thanh toán thất bại.');
+            }
+            const updatedApplication = await response.json();
+            appContext?.updateApplication(updatedApplication);
+            setIsConfirmed(true);
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setIsConfirming(false);
+        }
+    };
+
+    if (isConfirmed) {
+        return (
+             <div className="mt-6 p-6 bg-green-50 rounded-lg border border-green-200 text-center">
+                <svg className="w-12 h-12 mx-auto text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <h3 className="text-lg font-semibold text-green-800 mt-2">Đã xác nhận thanh toán! Chụp màn hình thanh toán lưu trong máy</h3>
+                <p className="text-sm text-green-700">Cảm ơn bạn đã hoàn tất lệ phí. Nhà trường sẽ sớm xét duyệt hồ sơ.</p>
+            </div>
+        )
+    }
+
+    return (
+        <>
+            <PaymentInfo application={application} />
+            <div className="mt-6 text-center">
+                <button
+                    onClick={handleConfirmPayment}
+                    disabled={isConfirming}
+                    className="px-8 py-3 bg-success text-white font-bold rounded-lg shadow-lg hover:bg-green-700 transition-transform transform hover:scale-105 disabled:bg-gray-400 disabled:scale-100"
+                >
+                    {isConfirming ? 'Đang xử lý...' : 'Tôi đã hoàn tất thanh toán'}
+                </button>
+                {error && <p className="text-sm text-danger mt-2">{error}</p>}
+            </div>
+        </>
     );
 };
 
@@ -102,7 +156,7 @@ const ParentPortal: React.FC = () => {
                         <h2 className="text-2xl font-bold text-gray-800 mt-4">Nộp hồ sơ thành công!</h2>
                         <p className="text-gray-600 mt-2">Mã hồ sơ của học sinh là: <strong className="text-primary">{lastSubmittedApplication.id}</strong>. Vui lòng hoàn tất lệ phí tuyển sinh để hoàn tất đăng ký.</p>
                         
-                        <PaymentInfo application={lastSubmittedApplication} />
+                        <PaymentView application={lastSubmittedApplication} />
 
                         <div className="mt-8 flex justify-center space-x-4">
                             <button onClick={() => setView('status_check')} className="px-6 py-2 bg-secondary text-white font-semibold rounded-lg shadow-md hover:bg-opacity-90 transition">Tra cứu hồ sơ</button>

@@ -7,6 +7,7 @@ export enum EnrollmentType {
 
 export enum ApplicationStatus {
   SUBMITTED = "Đã nộp",
+  PAID_FEE = "Đã nộp lệ phí",
   REVIEWING = "Đang xét duyệt",
   APPROVED = "Đã trúng tuyển",
   REJECTED = "Bị từ chối",
@@ -23,6 +24,10 @@ export interface Application {
   studentName: string;
   studentDob: string;
   studentGender: 'Nam' | 'Nữ';
+  studentPID: string; // Số định danh cá nhân
+  ethnicity: string; // Dân tộc
+  placeOfBirth: string; // Nơi sinh
+  hometown: string; // Quê quán
   parentName: string;
   parentPhone: string;
   address: string;
@@ -53,9 +58,18 @@ export interface Announcement {
   details: AnnouncementDetail[];
   attachmentUrl?: string;
   attachmentName?: string;
+  // New fields for Admitted List
+  admittedListUrl?: string;
+  admittedListName?: string;
 }
 
 export interface Guideline {
   id: string;
   text: string;
+}
+
+export interface SchoolSettings {
+    schoolName: string;
+    logoUrl?: string;
+    bannerUrl?: string;
 }

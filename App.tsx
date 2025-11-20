@@ -1,19 +1,23 @@
+
 import React, { useState, useCallback, useEffect } from 'react';
-import type { Application, SchoolClass, Announcement, Guideline } from './types';
+import type { Application, SchoolClass, Announcement, Guideline, SchoolSettings } from './types';
 import Header from './components/shared/Header';
 import ParentPortal from './components/parent/ParentPortal';
 import AdminDashboard from './components/admin/AdminDashboard';
 import AdminLogin from './components/admin/AdminLogin';
 import Footer from './components/shared/Footer';
 
-// IMPORTANT: Replace this with your actual Render backend URL after deployment
-export const API_BASE_URL = 'https://tuyensinh-backend.onrender.com';
+// --- Cấu hình Địa chỉ Máy chủ ---
+// - Khi phát triển trên máy của bạn, hãy sử dụng 'http://localhost:3001'.
+// - Khi triển khai lên một dịch vụ như Render, hãy thay thế bằng URL của backend đó.
+export const API_BASE_URL = 'http://localhost:3001';
 
 export const AppContext = React.createContext<{
   applications: Application[];
   classes: SchoolClass[];
   announcement: Announcement | null;
   guidelines: Guideline[];
+  schoolSettings: SchoolSettings;
   addApplication: (app: Application) => void;
   updateApplication: (app: Application) => void;
   updateApplications: (apps: Application[]) => void;
@@ -22,7 +26,9 @@ export const AppContext = React.createContext<{
   deleteClass: (classId: string) => void;
   updateAnnouncement: (announcement: Announcement) => void;
   updateGuidelines: (guidelines: Guideline[]) => void;
+  updateSchoolSettings: (settings: SchoolSettings) => void;
   fetchData: () => Promise<void>;
+  error: string | null;
 } | null>(null);
 
 
@@ -33,22 +39,28 @@ const App: React.FC = () => {
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [announcement, setAnnouncement] = useState<Announcement | null>(null);
   const [guidelines, setGuidelines] = useState<Guideline[]>([]);
+  const [schoolSettings, setSchoolSettings] = useState<SchoolSettings>({ schoolName: "TRƯỜNG TIỂU HỌC NGUYỄN HUỆ" });
   const [portalKey, setPortalKey] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       const response = await fetch(`${API_BASE_URL}/api/data`);
-      if (!response.ok) throw new Error('Network response was not ok');
+      if (!response.ok) throw new Error('Không thể kết nối đến máy chủ.');
       const data = await response.json();
       setApplications(data.applications.map((app: Application) => ({...app, submittedAt: new Date(app.submittedAt) })));
       setClasses(data.classes);
       setAnnouncement(data.announcement);
       setGuidelines(data.guidelines);
-    } catch (error) {
+      if (data.settings) {
+        setSchoolSettings(data.settings);
+      }
+    } catch (error: any) {
       console.error("Failed to fetch data:", error);
-      // You might want to show an error message to the user here
+      setError(`Không thể tải dữ liệu. Lỗi: ${error.message || error}. Vui lòng kiểm tra xem máy chủ Backend đã được khởi động chưa.`);
     } finally {
       setLoading(false);
     }
@@ -93,6 +105,10 @@ const App: React.FC = () => {
     setGuidelines(newGuidelines);
   }, []);
 
+  const updateSchoolSettings = useCallback((newSettings: SchoolSettings) => {
+      setSchoolSettings(newSettings);
+  }, []);
+
   const handleAdminLogin = () => setIsAdminLoggedIn(true);
   const handleAdminLogout = () => setIsAdminLoggedIn(false);
   const handleGoHome = useCallback(() => setPortalKey(prevKey => prevKey + 1), []);
@@ -113,15 +129,41 @@ const App: React.FC = () => {
         </div>
       );
     }
+
+    if (error) {
+        return (
+            <div className="flex flex-col justify-center items-center h-64 text-center px-4">
+                <svg className="w-16 h-16 text-danger mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <h2 className="text-xl font-bold text-gray-800 mb-2">Không thể kết nối đến máy chủ</h2>
+                <p className="text-gray-600 mb-6">{error}</p>
+                <div className="bg-gray-100 p-4 rounded-md text-left text-sm text-gray-700 mb-6">
+                     <p className="font-bold mb-1">Cách khắc phục:</p>
+                     <ul className="list-disc list-inside">
+                         <li>Mở <strong>Terminal</strong> hoặc <strong>PowerShell</strong>.</li>
+                         <li>Vào thư mục <code>backend</code>.</li>
+                         <li>Chạy lệnh: <code>node server.js</code></li>
+                     </ul>
+                </div>
+                <button 
+                    onClick={fetchData}
+                    className="px-6 py-2 bg-primary text-white rounded-md hover:bg-primary-dark transition-colors"
+                >
+                    Thử lại
+                </button>
+            </div>
+        );
+    }
+
     return view === 'parent' ? <ParentPortal key={portalKey} /> : renderAdminView();
   }
 
   return (
     <AppContext.Provider value={{ 
-      applications, classes, announcement, guidelines,
+      applications, classes, announcement, guidelines, schoolSettings,
       addApplication, updateApplication, updateApplications, 
       addClass, updateClass, deleteClass,
-      updateAnnouncement, updateGuidelines, fetchData
+      updateAnnouncement, updateGuidelines, updateSchoolSettings, fetchData,
+      error
     }}>
       <div className="min-h-screen flex flex-col font-sans bg-gray-50">
         <Header 

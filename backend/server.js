@@ -1,67 +1,79 @@
+
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
-
+const fetch = require('node-fetch');
 
 const app = express();
-const PORT = process.env.PORT
+const PORT = process.env.PORT || 3001;
 const DB_PATH = path.join(__dirname, 'db.json');
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
-// 1. Định nghĩa các nguồn (Origins) được phép
-const allowedOrigins = [
-    'https://tuyensinh-nh.vercel.app', // Domain chính thức trên Vercel
-    'http://localhost:3000'           // Thêm localhost để dễ dàng phát triển (Development)
-    // Thêm các domain khác nếu có
-];
+// --- Ensure Uploads Directory Exists ---
+if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    console.log('Created uploads directory.');
+}
 
-const corsOptions = {
-    // Hàm kiểm tra xem Origin gửi yêu cầu có nằm trong danh sách được phép không
-    origin: function (origin, callback) {
-        // Cho phép yêu cầu nếu origin có trong danh sách
-        // Hoặc cho phép nếu origin là undefined (thường là các yêu cầu từ cùng một nguồn hoặc Postman)
-        if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
-            callback(null, true);
-        } else {
-            // Chặn các yêu cầu từ nguồn không được phép
-            callback(new Error('Not allowed by CORS')); 
-        }
-    },
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE', // Các phương thức HTTP được phép
-    credentials: true // Quan trọng nếu bạn gửi cookies hoặc Authorization header
-};
+// --- Twilio Setup ---
+const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
+const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
+const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
+const isTwilioConfigured = twilioAccountSid && twilioAuthToken && twilioPhoneNumber;
+const twilioClient = isTwilioConfigured ? require('twilio')(twilioAccountSid, twilioAuthToken) : null;
 
-// 2. Áp dụng middleware CORS với các tùy chọn
-app.use(cors(corsOptions));
+// --- In-memory OTP store ---
+const otpStore = {}; 
 
-// ... Khai báo routes của bạn (ví dụ: /api/data) ...
-
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 // --- Middleware ---
-app.use(cors());
+// CORS Configuration: Allow requests from anywhere (simplest for initial deployment)
+// For higher security later, you can restrict this to your frontend domain.
+app.use(cors({
+    origin: '*', 
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(UPLOADS_DIR));
 
 // --- Database Helpers ---
-const readDB = () => JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
+const readDB = () => {
+    if (!fs.existsSync(DB_PATH)) {
+        const initialData = { applications: [], classes: [], announcement: {}, guidelines: [], settings: {} };
+        fs.writeFileSync(DB_PATH, JSON.stringify(initialData, null, 2));
+    }
+    return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
+};
 const writeDB = (data) => fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 
 // --- Multer Setup for File Uploads ---
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        const dir = path.join(__dirname, 'uploads');
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
-        cb(null, dir);
+        cb(null, UPLOADS_DIR);
     },
     filename: (req, file, cb) => {
-        cb(null, `${Date.now()}-${uuidv4()}${path.extname(file.originalname)}`);
+        // Sanitize filename to prevent issues
+        const safeName = file.originalname.replace(/[^a-zA-Z0-9.]/g, '_');
+        cb(null, `${Date.now()}-${uuidv4()}-${safeName}`);
     }
 });
 const upload = multer({ storage });
+
+
+// --- Root Route for Health Check ---
+app.get('/', (req, res) => {
+    res.send(`
+        <h1>Backend Server is Running on Render</h1>
+        <p>Status: Online</p>
+        <p>Twilio Configured: ${isTwilioConfigured ? 'Yes' : 'No'}</p>
+    `);
+});
+
 
 // --- API Routes ---
 
@@ -69,9 +81,14 @@ const upload = multer({ storage });
 app.get('/api/data', (req, res) => {
     try {
         const db = readDB();
+        if (!db.settings) {
+            db.settings = { schoolName: "TRƯỜNG TIỂU HỌC NGUYỄN HUỆ", logoUrl: null, bannerUrl: null };
+            writeDB(db);
+        }
         res.json(db);
     } catch (error) {
-        res.status(500).json({ message: "Error reading data", error });
+        console.error("Error reading data:", error);
+        res.status(500).json({ message: "Error reading data", error: error.toString() });
     }
 });
 
@@ -83,7 +100,7 @@ app.post('/api/applications', upload.fields([{ name: 'birthCert', maxCount: 1 },
         const newApplication = {
             ...req.body,
             id: `NH25${String(applicationsCount + 1).padStart(3, '0')}`,
-            isPriority: req.body.isPriority === 'on', // Checkbox value is 'on'
+            isPriority: req.body.isPriority === 'on',
             status: 'Đã nộp',
             submittedAt: new Date(),
             birthCertUrl: req.files.birthCert ? `/uploads/${req.files.birthCert[0].filename}` : null,
@@ -93,7 +110,8 @@ app.post('/api/applications', upload.fields([{ name: 'birthCert', maxCount: 1 },
         writeDB(db);
         res.status(201).json(newApplication);
     } catch (error) {
-        res.status(500).json({ message: "Error creating application", error });
+        console.error("Error creating application:", error);
+        res.status(500).json({ message: "Error creating application", error: error.toString() });
     }
 });
 
@@ -110,14 +128,14 @@ app.put('/api/applications/:id', (req, res) => {
         writeDB(db);
         res.json(db.applications[appIndex]);
     } catch (error) {
-        res.status(500).json({ message: "Error updating application", error });
+        res.status(500).json({ message: "Error updating application", error: error.toString() });
     }
 });
 
 // PUT (bulk update) applications
 app.put('/api/applications/bulk-update', (req, res) => {
     try {
-        const { updates } = req.body; // updates is an array of { id, classId, status }
+        const { updates } = req.body;
         if (!Array.isArray(updates)) {
             return res.status(400).json({ message: 'Invalid payload' });
         }
@@ -133,7 +151,24 @@ app.put('/api/applications/bulk-update', (req, res) => {
         writeDB(db);
         res.json(updatedApps);
     } catch (error) {
-        res.status(500).json({ message: "Error bulk updating applications", error });
+        res.status(500).json({ message: "Error bulk updating applications", error: error.toString() });
+    }
+});
+
+// POST confirm payment
+app.post('/api/applications/:id/confirm-payment', (req, res) => {
+    try {
+        const db = readDB();
+        const appId = req.params.id;
+        const appIndex = db.applications.findIndex(app => app.id === appId);
+        if (appIndex === -1) {
+            return res.status(404).json({ message: 'Application not found' });
+        }
+        db.applications[appIndex].status = 'Đã nộp lệ phí';
+        writeDB(db);
+        res.json(db.applications[appIndex]);
+    } catch (error) {
+        res.status(500).json({ message: "Error confirming payment", error: error.toString() });
     }
 });
 
@@ -147,7 +182,7 @@ app.post('/api/classes', (req, res) => {
         writeDB(db);
         res.status(201).json(newClass);
     } catch (error) {
-        res.status(500).json({ message: 'Error creating class', error });
+        res.status(500).json({ message: 'Error creating class', error: error.toString() });
     }
 });
 
@@ -160,7 +195,7 @@ app.put('/api/classes/:id', (req, res) => {
         writeDB(db);
         res.json(db.classes[classIndex]);
     } catch (error) {
-        res.status(500).json({ message: 'Error updating class', error });
+        res.status(500).json({ message: 'Error updating class', error: error.toString() });
     }
 });
 
@@ -175,24 +210,32 @@ app.delete('/api/classes/:id', (req, res) => {
         writeDB(db);
         res.status(204).send();
     } catch (error) {
-        res.status(500).json({ message: 'Error deleting class', error });
+        res.status(500).json({ message: 'Error deleting class', error: error.toString() });
     }
 });
 
 
 // --- Site Content Management ---
-app.put('/api/site-content', upload.single('attachment'), (req, res) => {
+app.put('/api/site-content', upload.fields([{ name: 'attachment', maxCount: 1 }, { name: 'admittedList', maxCount: 1 }]), (req, res) => {
     try {
         const db = readDB();
         const announcementData = JSON.parse(req.body.announcementData);
         const guidelinesData = JSON.parse(req.body.guidelinesData);
         
-        if (req.file) { // New file uploaded
-            announcementData.attachmentUrl = `/uploads/${req.file.filename}`;
-            announcementData.attachmentName = req.file.originalname;
-        } else if (req.body.removeAttachment === 'true') { // Flag to remove attachment
+        if (req.files && req.files['attachment']) {
+            announcementData.attachmentUrl = `/uploads/${req.files['attachment'][0].filename}`;
+            announcementData.attachmentName = req.files['attachment'][0].originalname;
+        } else if (req.body.removeAttachment === 'true') {
             delete announcementData.attachmentUrl;
             delete announcementData.attachmentName;
+        }
+
+        if (req.files && req.files['admittedList']) {
+            announcementData.admittedListUrl = `/uploads/${req.files['admittedList'][0].filename}`;
+            announcementData.admittedListName = req.files['admittedList'][0].originalname;
+        } else if (req.body.removeAdmittedList === 'true') {
+            delete announcementData.admittedListUrl;
+            delete announcementData.admittedListName;
         }
 
         db.announcement = announcementData;
@@ -200,25 +243,96 @@ app.put('/api/site-content', upload.single('attachment'), (req, res) => {
         writeDB(db);
         res.json({ announcement: db.announcement, guidelines: db.guidelines });
     } catch (error) {
-        res.status(500).json({ message: 'Error updating site content', error: error.message });
+        res.status(500).json({ message: 'Error updating site content', error: error.toString() });
     }
 });
 
-// --- Auth (Simulated OTP) ---
-app.post('/api/auth/send-otp', (req, res) => {
+// --- Settings Management ---
+app.put('/api/settings', upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), (req, res) => {
+    try {
+        const db = readDB();
+        let currentSettings = db.settings || { schoolName: "TRƯỜNG TIỂU HỌC NGUYỄN HUỆ", logoUrl: null, bannerUrl: null };
+
+        if (req.body.schoolName) {
+            currentSettings.schoolName = req.body.schoolName;
+        }
+
+        const files = req.files || {};
+
+        if (files['logo'] && files['logo'][0]) {
+            currentSettings.logoUrl = `/uploads/${files['logo'][0].filename}`;
+        } else if (req.body.removeLogo === 'true') {
+            currentSettings.logoUrl = null;
+        }
+
+        if (files['banner'] && files['banner'][0]) {
+            currentSettings.bannerUrl = `/uploads/${files['banner'][0].filename}`;
+        } else if (req.body.removeBanner === 'true') {
+            currentSettings.bannerUrl = null;
+        }
+
+        db.settings = currentSettings;
+        writeDB(db);
+        res.json(db.settings);
+    } catch (error) {
+        console.error("Error updating settings:", error);
+        res.status(500).json({ message: 'Error updating settings', error: error.message });
+    }
+});
+
+// --- Real OTP Auth ---
+app.post('/api/auth/send-otp', async (req, res) => {
     const { phoneNumber } = req.body;
-    console.log(`Simulating OTP sent to ${phoneNumber}. The OTP is 123456.`);
-    res.json({ message: 'OTP sent successfully (simulation).' });
+    if (!phoneNumber || !/^\d{10}$/.test(phoneNumber)) {
+        return res.status(400).json({ message: 'Số điện thoại không hợp lệ.' });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = Date.now() + 5 * 60 * 1000;
+
+    otpStore[phoneNumber] = { otp, expires };
+    
+    if (!isTwilioConfigured) {
+        // In Production/Render logs, this will appear in the Dashboard logs
+        console.log(`[DEV MODE] OTP for ${phoneNumber}: ${otp}`);
+        return res.json({ message: 'OTP sent successfully (dev mode).' });
+    }
+
+    try {
+        const toPhoneNumber = `+84${phoneNumber.substring(1)}`;
+        await twilioClient.messages.create({
+            body: `Mã xác thực tuyển sinh của bạn là: ${otp}`,
+            from: twilioPhoneNumber,
+            to: toPhoneNumber
+        });
+        res.json({ message: 'Mã OTP đã được gửi đến điện thoại của bạn.' });
+    } catch (error) {
+        console.error('Twilio Error:', error);
+        res.status(500).json({ message: 'Không thể gửi mã OTP. Vui lòng thử lại sau.' });
+    }
 });
 
 app.post('/api/auth/verify-otp', (req, res) => {
-    const { otp } = req.body;
-    if (otp === '123456') {
+    const { phoneNumber, otp } = req.body;
+    const storedOtpData = otpStore[phoneNumber];
+
+    if (!storedOtpData) {
+        return res.status(400).json({ message: 'Mã OTP không hợp lệ hoặc đã hết hạn.' });
+    }
+
+    if (Date.now() > storedOtpData.expires) {
+        delete otpStore[phoneNumber];
+        return res.status(400).json({ message: 'Mã OTP đã hết hạn. Vui lòng yêu cầu mã mới.' });
+    }
+
+    if (storedOtpData.otp === otp) {
+        delete otpStore[phoneNumber];
         res.json({ message: 'Login successful.' });
     } else {
         res.status(400).json({ message: 'Mã OTP không chính xác. Vui lòng thử lại.' });
     }
 });
+
 
 // --- QR Code Generation ---
 app.get('/api/qr-code/:applicationId', (req, res) => {
@@ -227,10 +341,13 @@ app.get('/api/qr-code/:applicationId', (req, res) => {
         const application = db.applications.find(app => app.id === req.params.applicationId);
         if (!application) return res.status(404).json({ message: 'Application not found' });
         
-        const removeAccents = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D");
-        
+        const removeAccents = (str) => {
+            if (!str) return '';
+            return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D");
+        };
+
         const transferInfo = {
-            bin: '970418',
+            bin: '970415',
             accountNo: '111222333444',
             accountName: 'TRUONG TIEU HOC NGUYEN HUE',
             amount: 200000,
@@ -238,12 +355,11 @@ app.get('/api/qr-code/:applicationId', (req, res) => {
         };
         const qrUrl = `https://img.vietqr.io/image/${transferInfo.bin}-${transferInfo.accountNo}-compact.png?amount=${transferInfo.amount}&addInfo=${encodeURIComponent(transferInfo.description)}&accountName=${encodeURIComponent(transferInfo.accountName)}`;
 
-        // We can't directly send the image, but we can send the URL or proxy the request.
-        // For simplicity, we send the URL and let the client fetch it.
-        // A more robust solution would fetch the image server-side and send it as a data URL.
-        // Let's do that for better reliability.
         fetch(qrUrl)
-            .then(qrRes => qrRes.arrayBuffer())
+            .then(qrRes => {
+                 if (!qrRes.ok) throw new Error(`VietQR API responded with status: ${qrRes.status}`);
+                 return qrRes.arrayBuffer();
+            })
             .then(buffer => {
                 const base64 = Buffer.from(buffer).toString('base64');
                 res.json({ qrDataURL: `data:image/png;base64,${base64}` });
@@ -254,11 +370,11 @@ app.get('/api/qr-code/:applicationId', (req, res) => {
             });
 
     } catch(error) {
-        res.status(500).json({ message: 'Server error', error });
+        res.status(500).json({ message: 'Server error', error: error.toString() });
     }
 });
 
 // --- Server Start ---
 app.listen(PORT, () => {
-    console.log(`Backend server running on http://localhost:${PORT}`);
+    console.log(`Backend server running on port ${PORT}`);
 });

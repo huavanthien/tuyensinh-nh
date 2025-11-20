@@ -5,8 +5,9 @@ import ClassAssignment from './ClassAssignment';
 import Reports from './Reports';
 import ClassManagement from './ClassManagement';
 import AnnouncementManagement from './AnnouncementManagement';
+import SettingsManagement from './SettingsManagement';
 
-type AdminTab = 'review' | 'assignment' | 'class_management' | 'announcement_management' | 'reports';
+type AdminTab = 'review' | 'assignment' | 'class_management' | 'announcement_management' | 'reports' | 'settings';
 
 const AdminDashboard: React.FC = () => {
     const [activeTab, setActiveTab] = useState<AdminTab>('review');
@@ -28,7 +29,7 @@ const AdminDashboard: React.FC = () => {
     return (
         <div className="w-full">
             <div className="bg-white p-4 rounded-lg shadow-md mb-6">
-                <div className="flex items-center space-x-2 flex-wrap">
+                <div className="flex items-center space-x-2 flex-wrap gap-y-2">
                     <TabButton tabName="review" currentTab={activeTab} onClick={setActiveTab}>
                         Duyệt hồ sơ
                     </TabButton>
@@ -44,6 +45,9 @@ const AdminDashboard: React.FC = () => {
                     <TabButton tabName="reports" currentTab={activeTab} onClick={setActiveTab}>
                         Xuất danh sách & Báo cáo
                     </TabButton>
+                    <TabButton tabName="settings" currentTab={activeTab} onClick={setActiveTab}>
+                        Cài đặt chung
+                    </TabButton>
                 </div>
             </div>
 
@@ -53,6 +57,7 @@ const AdminDashboard: React.FC = () => {
                 {activeTab === 'class_management' && <ClassManagement />}
                 {activeTab === 'announcement_management' && <AnnouncementManagement />}
                 {activeTab === 'reports' && <Reports />}
+                {activeTab === 'settings' && <SettingsManagement />}
             </div>
         </div>
     );

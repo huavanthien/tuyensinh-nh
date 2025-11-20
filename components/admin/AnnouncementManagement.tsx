@@ -1,3 +1,4 @@
+
 import React, { useState, useContext, useEffect } from 'react';
 import { AppContext, API_BASE_URL } from '../../App';
 import type { Announcement, Guideline } from '../../types';
@@ -7,7 +8,10 @@ const AnnouncementManagement: React.FC = () => {
     
     const [localAnnouncement, setLocalAnnouncement] = useState<Announcement | null>(null);
     const [localGuidelines, setLocalGuidelines] = useState<Guideline[]>([]);
+    
     const [newAttachment, setNewAttachment] = useState<File | null>(null);
+    const [newAdmittedList, setNewAdmittedList] = useState<File | null>(null);
+
     const [isSaving, setIsSaving] = useState(false);
     const [isSaved, setIsSaved] = useState(false);
 
@@ -60,6 +64,26 @@ const AnnouncementManagement: React.FC = () => {
         setNewAttachment(null); // Mark for removal on save
     };
 
+    const handleAdmittedListChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            setNewAdmittedList(e.target.files[0]);
+            setLocalAnnouncement({
+                ...localAnnouncement,
+                admittedListName: e.target.files[0].name,
+                admittedListUrl: URL.createObjectURL(e.target.files[0])
+            });
+        }
+    };
+
+    const removeAdmittedList = () => {
+        const { admittedListUrl, admittedListName, ...rest } = localAnnouncement;
+        if (admittedListUrl && admittedListUrl.startsWith('blob:')) {
+            URL.revokeObjectURL(admittedListUrl);
+        }
+        setLocalAnnouncement(rest);
+        setNewAdmittedList(null);
+    };
+
     const handleSaveChanges = async () => {
         setIsSaving(true);
         setIsSaved(false);
@@ -68,10 +92,19 @@ const AnnouncementManagement: React.FC = () => {
             const formData = new FormData();
             formData.append('announcementData', JSON.stringify(localAnnouncement));
             formData.append('guidelinesData', JSON.stringify(localGuidelines));
+            
+            // Handle attachment logic
             if (newAttachment) {
                 formData.append('attachment', newAttachment);
             } else if (!localAnnouncement.attachmentUrl) {
                 formData.append('removeAttachment', 'true');
+            }
+
+            // Handle admitted list logic
+            if (newAdmittedList) {
+                formData.append('admittedList', newAdmittedList);
+            } else if (!localAnnouncement.admittedListUrl) {
+                formData.append('removeAdmittedList', 'true');
             }
 
             const response = await fetch(`${API_BASE_URL}/api/site-content`, {
@@ -91,6 +124,7 @@ const AnnouncementManagement: React.FC = () => {
         } finally {
             setIsSaving(false);
             setNewAttachment(null);
+            setNewAdmittedList(null);
         }
     };
 
@@ -119,8 +153,8 @@ const AnnouncementManagement: React.FC = () => {
                             />
                         </div>
                     ))}
-                    <div className="mt-4">
-                        <label className="block text-sm font-medium text-gray-700">Tệp đính kèm (Thông báo chi tiết)</label>
+                    <div className="mt-4 border-t pt-4">
+                        <label className="block text-sm font-bold text-gray-800">1. Tệp đính kèm (Thông báo chi tiết)</label>
                         {localAnnouncement.attachmentUrl ? (
                             <div className="mt-2 flex items-center justify-between p-2 bg-gray-100 rounded-md">
                                 <a href={localAnnouncement.attachmentUrl.startsWith('blob:') ? localAnnouncement.attachmentUrl : `${API_BASE_URL}${localAnnouncement.attachmentUrl}`} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-primary hover:underline truncate" title={localAnnouncement.attachmentName}>
@@ -134,6 +168,27 @@ const AnnouncementManagement: React.FC = () => {
                                     type="file"
                                     onChange={handleFileChange}
                                     className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-primary hover:file:bg-blue-100"
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                     <div className="mt-4 border-t pt-4">
+                        <label className="block text-sm font-bold text-gray-800 text-success">2. Danh sách Trúng tuyển (Kết quả)</label>
+                        <p className="text-xs text-gray-500 mb-2">Tải file này lên khi có kết quả tuyển sinh. Phụ huynh sẽ thấy file này trên trang chủ.</p>
+                        {localAnnouncement.admittedListUrl ? (
+                            <div className="mt-2 flex items-center justify-between p-2 bg-green-50 border border-green-200 rounded-md">
+                                <a href={localAnnouncement.admittedListUrl.startsWith('blob:') ? localAnnouncement.admittedListUrl : `${API_BASE_URL}${localAnnouncement.admittedListUrl}`} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-green-700 hover:underline truncate" title={localAnnouncement.admittedListName}>
+                                    {localAnnouncement.admittedListName}
+                                </a>
+                                <button onClick={removeAdmittedList} className="ml-4 text-sm font-semibold text-danger hover:underline">Xóa</button>
+                            </div>
+                        ) : (
+                            <div className="mt-2">
+                                <input
+                                    type="file"
+                                    onChange={handleAdmittedListChange}
+                                    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
                                 />
                             </div>
                         )}

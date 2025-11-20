@@ -20,6 +20,8 @@ const getStatusColor = (status: ApplicationStatus) => {
             return 'bg-warning text-gray-800';
         case ApplicationStatus.SUBMITTED:
             return 'bg-secondary text-white';
+        case ApplicationStatus.PAID_FEE:
+            return 'bg-indigo-500 text-white';
         default:
             return 'bg-gray-500 text-white';
     }
@@ -51,7 +53,7 @@ const StatusResult: React.FC<StatusResultProps> = ({ application, onBack }) => {
     const { classes } = useContext(AppContext)!;
     const assignedClass = classes.find(c => c.id === application.classId);
 
-    const timelineStatuses = [ApplicationStatus.SUBMITTED, ApplicationStatus.REVIEWING, ApplicationStatus.APPROVED, ApplicationStatus.ASSIGNED];
+    const timelineStatuses = [ApplicationStatus.SUBMITTED, ApplicationStatus.PAID_FEE, ApplicationStatus.REVIEWING, ApplicationStatus.APPROVED, ApplicationStatus.ASSIGNED];
     const currentStatusIndex = timelineStatuses.indexOf(application.status === ApplicationStatus.REJECTED ? ApplicationStatus.REVIEWING : application.status);
 
     return (
@@ -76,6 +78,16 @@ const StatusResult: React.FC<StatusResultProps> = ({ application, onBack }) => {
                          <div className="grid grid-cols-3 gap-4">
                             <span className="text-gray-500 font-medium">Ngày sinh:</span>
                             <span className="col-span-2 text-gray-800">{new Date(application.studentDob).toLocaleDateString('vi-VN')}</span>
+                        </div>
+                        {application.studentPID && (
+                            <div className="grid grid-cols-3 gap-4">
+                                <span className="text-gray-500 font-medium">Số định danh:</span>
+                                <span className="col-span-2 text-gray-800">{application.studentPID}</span>
+                            </div>
+                        )}
+                        <div className="grid grid-cols-3 gap-4">
+                            <span className="text-gray-500 font-medium">Dân tộc:</span>
+                            <span className="col-span-2 text-gray-800">{application.ethnicity}</span>
                         </div>
                          <div className="grid grid-cols-3 gap-4">
                             <span className="text-gray-500 font-medium">Phụ huynh:</span>

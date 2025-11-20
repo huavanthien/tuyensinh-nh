@@ -99,8 +99,7 @@ const ParentLogin: React.FC<ParentLoginProps> = ({ onLoginSuccess, onBack }) => 
                         <label htmlFor="otp" className="block text-sm font-medium text-gray-700">
                            Mã xác thực (OTP)
                         </label>
-                        <p className="text-sm text-gray-600 mb-2">Một mã xác thực đã được gửi đến số <span className="font-semibold">{phoneNumber}</span>.</p>
-                        <p className="text-xs text-center text-gray-500 my-2 p-2 bg-gray-100 rounded-md">(Để phục vụ mục đích thử nghiệm, vui lòng sử dụng mã: <strong className="font-mono text-primary">123456</strong>)</p>
+                        <p className="text-sm text-gray-600 mb-2">Một mã xác thực đã được gửi đến số <span className="font-semibold">{phoneNumber}</span>. Vui lòng kiểm tra tin nhắn.</p>
                         <input
                             type="text"
                             id="otp"

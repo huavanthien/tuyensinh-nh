@@ -25,28 +25,63 @@ const Reports: React.FC = () => {
         [applications]
     );
     
-    const downloadCSV = (data: Application[], filename: string) => {
+    const downloadXLSX = (data: Application[], filename: string) => {
         if (data.length === 0) return;
-        const headers = ['Mã HS', 'Họ tên', 'Ngày sinh', 'Giới tính', 'Phụ huynh', 'SĐT', 'Địa chỉ', 'Lớp'];
-        const rows = data.map(app => [
-            app.id,
-            app.studentName,
-            app.studentDob,
-            app.studentGender,
-            app.parentName,
-            app.parentPhone,
-            `"${app.address}"`,
-            classes.find(c => c.id === app.classId)?.name || 'Chưa phân lớp'
-        ].join(','));
+        
+        // Prepare data for Excel
+        const rows = data.map(app => ({
+            'Mã HS': app.id,
+            'Họ và tên': app.studentName,
+            'Ngày sinh': new Date(app.studentDob).toLocaleDateString('vi-VN'),
+            'Giới tính': app.studentGender,
+            'Số định danh': app.studentPID,
+            'Dân tộc': app.ethnicity,
+            'Nơi sinh': app.placeOfBirth,
+            'Quê quán': app.hometown,
+            'Phụ huynh': app.parentName,
+            'Số điện thoại': app.parentPhone,
+            'Địa chỉ': app.address,
+            'Lớp': classes.find(c => c.id === app.classId)?.name || 'Chưa phân lớp',
+            'Trạng thái': app.status,
+            'Tuyến': app.enrollmentRoute,
+            'Ưu tiên': app.isPriority ? 'Có' : 'Không'
+        }));
 
-        const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows].join('\n');
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", `${filename}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const XLSX = (window as any).XLSX;
+        if (!XLSX) {
+            alert("Đang tải thư viện Excel, vui lòng thử lại sau giây lát.");
+            return;
+        }
+
+        // Create worksheet
+        const worksheet = XLSX.utils.json_to_sheet(rows);
+
+        // Set column widths
+        const wscols = [
+            {wch: 10}, // Mã HS
+            {wch: 20}, // Họ tên
+            {wch: 12}, // Ngày sinh
+            {wch: 8},  // Giới tính
+            {wch: 15}, // Số định danh
+            {wch: 10}, // Dân tộc
+            {wch: 15}, // Nơi sinh
+            {wch: 15}, // Quê quán
+            {wch: 20}, // Phụ huynh
+            {wch: 12}, // SĐT
+            {wch: 30}, // Địa chỉ
+            {wch: 10}, // Lớp
+            {wch: 15}, // Trạng thái
+            {wch: 12}, // Tuyến
+            {wch: 8}   // Ưu tiên
+        ];
+        worksheet['!cols'] = wscols;
+
+        // Create workbook and append worksheet
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Danh sách");
+
+        // Write file
+        XLSX.writeFile(workbook, `${filename}.xlsx`);
     };
 
     const ReportSection: React.FC<{title: string, data: Application[], filename: string, children?: React.ReactNode}> = ({ title, data, filename, children }) => (
@@ -54,11 +89,12 @@ const Reports: React.FC = () => {
             <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-bold text-gray-800">{title} ({data.length} học sinh)</h3>
                 <button 
-                    onClick={() => downloadCSV(data, filename)}
+                    onClick={() => downloadXLSX(data, filename)}
                     disabled={data.length === 0}
-                    className="px-4 py-2 text-sm bg-secondary text-white rounded-md shadow hover:bg-opacity-90 disabled:bg-gray-400"
+                    className="px-4 py-2 text-sm font-medium bg-green-600 text-white rounded-md shadow hover:bg-green-700 disabled:bg-gray-400 transition-colors flex items-center"
                 >
-                    Xuất CSV
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    Xuất Excel
                 </button>
             </div>
              {children}
@@ -104,7 +140,7 @@ const Reports: React.FC = () => {
                 <h3 className="text-lg font-bold text-gray-800 mb-4">Danh sách theo lớp</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {classes.map(c => (
-                        <ReportSection key={c.id} title={c.name} data={classLists[c.id]} filename={`DS_Lop_${c.name.replace(' ', '_')}`}>
+                        <ReportSection key={c.id} title={c.name} data={classLists[c.id]} filename={`DS_Lop_${c.name.replace(/\s+/g, '_')}`}>
                             <ApplicationList apps={classLists[c.id]} />
                         </ReportSection>
                     ))}

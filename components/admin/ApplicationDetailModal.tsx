@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import type { Application } from '../../types';
 import { ApplicationStatus } from '../../types';
@@ -59,6 +60,8 @@ const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({ isOpen,
         onReject(application, rejectionReason);
     };
     
+    const hasPaidFee = [ApplicationStatus.PAID_FEE, ApplicationStatus.APPROVED, ApplicationStatus.ASSIGNED].includes(application.status);
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 transition-opacity" onClick={onClose}>
             <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
@@ -76,6 +79,10 @@ const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({ isOpen,
                             <DetailItem label="Họ và tên" value={application.studentName} />
                             <DetailItem label="Ngày sinh" value={new Date(application.studentDob).toLocaleDateString('vi-VN')} />
                             <DetailItem label="Giới tính" value={application.studentGender} />
+                            <DetailItem label="Số định danh" value={application.studentPID} />
+                            <DetailItem label="Dân tộc" value={application.ethnicity} />
+                            <DetailItem label="Nơi sinh" value={application.placeOfBirth} />
+                            <DetailItem label="Quê quán" value={application.hometown} />
                         </dl>
                     </div>
                     
@@ -94,6 +101,14 @@ const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({ isOpen,
                             <DetailItem label="Loại hình" value={application.enrollmentType} />
                             <DetailItem label="Tuyến" value={application.enrollmentRoute} />
                             <DetailItem label="Diện ưu tiên" value={application.isPriority ? "Có" : "Không"} />
+                             <DetailItem 
+                                label="Tình trạng lệ phí" 
+                                value={
+                                    hasPaidFee 
+                                    ? <span className="font-bold text-success">Đã hoàn tất</span> 
+                                    : <span className="font-bold text-warning">Chưa hoàn tất</span>
+                                } 
+                            />
                         </dl>
                     </div>
                     
@@ -150,7 +165,7 @@ const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({ isOpen,
                             </button>
                         </>
                      ) : (
-                         (application.status === ApplicationStatus.SUBMITTED || application.status === ApplicationStatus.REVIEWING) && (
+                         ([ApplicationStatus.SUBMITTED, ApplicationStatus.REVIEWING, ApplicationStatus.PAID_FEE].includes(application.status)) && (
                             <>
                                 <button onClick={handleRejectClick} className="px-6 py-2 bg-danger text-white font-semibold rounded-lg shadow-md hover:bg-red-700 transition-colors">
                                     Từ chối

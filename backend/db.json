@@ -121,7 +121,9 @@
       }
     ],
     "attachmentUrl": "/uploads/Don_xin_nhap_hoc.pdf",
-    "attachmentName": "Don_xin_nhap_hoc.pdf"
+    "attachmentName": "Don_xin_nhap_hoc.pdf",
+    "admittedListUrl": null,
+    "admittedListName": null
   },
   "guidelines": [
     {
@@ -144,5 +146,10 @@
       "id": "g5",
       "text": "Lưu lại Mã hồ sơ để tra cứu kết quả tuyển sinh."
     }
-  ]
+  ],
+  "settings": {
+    "schoolName": "TRƯỜNG TIỂU HỌC NGUYỄN HUỆ",
+    "logoUrl": null,
+    "bannerUrl": null
+  }
 }

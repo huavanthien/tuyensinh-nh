@@ -1,3 +1,4 @@
+
 import React, { useState, useContext, useEffect } from 'react';
 import { AppContext, API_BASE_URL } from '../../App';
 import type { Application } from '../../types';
@@ -8,11 +9,11 @@ interface EnrollmentFormProps {
 }
 
 // FIX: Changed props from `value` to `defaultValue` to support uncontrolled inputs, which matches the form's usage of FormData.
-const InputField: React.FC<{label: string, id: string, name: string, type: string, defaultValue: string, onChange: (e: React.ChangeEvent<HTMLInputElement>) => void, required?: boolean}> = 
-({label, id, name, type, defaultValue, onChange, required=true}) => (
+const InputField: React.FC<{label: string, id: string, name: string, type: string, defaultValue: string, onChange: (e: React.ChangeEvent<HTMLInputElement>) => void, required?: boolean, placeholder?: string}> = 
+({label, id, name, type, defaultValue, onChange, required=true, placeholder}) => (
     <div>
         <label htmlFor={id} className="block text-sm font-medium text-gray-700">{label}</label>
-        <input type={type} id={id} name={name} defaultValue={defaultValue} onChange={onChange} required={required} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" />
+        <input type={type} id={id} name={name} defaultValue={defaultValue} onChange={onChange} required={required} placeholder={placeholder} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" />
     </div>
 );
 
@@ -117,17 +118,29 @@ const EnrollmentForm: React.FC<EnrollmentFormProps> = ({ onFormSuccess }) => {
                 <h3 className="text-lg font-semibold leading-6 text-gray-900">I. Thông tin học sinh</h3>
                 <div className="mt-4 grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-6">
                     <div className="sm:col-span-3">
-                        <InputField label="Họ và tên học sinh" id="studentName" name="studentName" type="text" defaultValue="Nguyễn Thị Hoa" onChange={() => {}} />
+                        <InputField label="Họ và tên học sinh" id="studentName" name="studentName" type="text" defaultValue="" onChange={() => {}} placeholder="Ví dụ: Nguyễn Văn An" />
                     </div>
                      <div className="sm:col-span-3">
                         <label htmlFor="studentGender" className="block text-sm font-medium text-gray-700">Giới tính</label>
-                        <select id="studentGender" name="studentGender" defaultValue="Nữ" className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md">
+                        <select id="studentGender" name="studentGender" defaultValue="Nam" className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md">
                             <option>Nam</option>
                             <option>Nữ</option>
                         </select>
                     </div>
                     <div className="sm:col-span-3">
-                        <InputField label="Ngày sinh" id="studentDob" name="studentDob" type="date" defaultValue="2018-10-20" onChange={() => {}} />
+                        <InputField label="Ngày sinh" id="studentDob" name="studentDob" type="date" defaultValue="" onChange={() => {}} />
+                    </div>
+                    <div className="sm:col-span-3">
+                         <InputField label="Số định danh cá nhân" id="studentPID" name="studentPID" type="text" defaultValue="" onChange={() => {}} placeholder="Nhập mã định danh" />
+                    </div>
+                    <div className="sm:col-span-2">
+                         <InputField label="Dân tộc" id="ethnicity" name="ethnicity" type="text" defaultValue="Kinh" onChange={() => {}} />
+                    </div>
+                    <div className="sm:col-span-2">
+                         <InputField label="Nơi sinh (Tỉnh/TP)" id="placeOfBirth" name="placeOfBirth" type="text" defaultValue="" onChange={() => {}} placeholder="Ví dụ: Đắk Nông" />
+                    </div>
+                    <div className="sm:col-span-2">
+                         <InputField label="Quê quán" id="hometown" name="hometown" type="text" defaultValue="" onChange={() => {}} placeholder="Ví dụ: Hà Tĩnh" />
                     </div>
                 </div>
             </div>
@@ -136,13 +149,13 @@ const EnrollmentForm: React.FC<EnrollmentFormProps> = ({ onFormSuccess }) => {
                 <h3 className="text-lg font-semibold leading-6 text-gray-900">II. Thông tin phụ huynh</h3>
                 <div className="mt-4 grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-6">
                     <div className="sm:col-span-3">
-                        <InputField label="Họ và tên cha/mẹ/người giám hộ" id="parentName" name="parentName" type="text" defaultValue="Nguyễn Văn Hùng" onChange={() => {}} />
+                        <InputField label="Họ và tên cha/mẹ/người giám hộ" id="parentName" name="parentName" type="text" defaultValue="" onChange={() => {}} placeholder="Ví dụ: Nguyễn Văn Ba" />
                     </div>
                      <div className="sm:col-span-3">
-                         <InputField label="Số điện thoại" id="parentPhone" name="parentPhone" type="tel" defaultValue="0988776655" onChange={() => {}} />
+                         <InputField label="Số điện thoại" id="parentPhone" name="parentPhone" type="tel" defaultValue="" onChange={() => {}} placeholder="09xxxxxxxx" />
                     </div>
                     <div className="sm:col-span-6">
-                         <InputField label="Địa chỉ thường trú" id="address" name="address" type="text" defaultValue="Thôn 1, xã Đắk Wil, Cư Jút, Đắk Nông" onChange={() => {}} />
+                         <InputField label="Địa chỉ thường trú" id="address" name="address" type="text" defaultValue="" onChange={() => {}} placeholder="Thôn/Buôn, Xã/Phường..." />
                     </div>
                 </div>
             </div>
