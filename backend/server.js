@@ -377,9 +377,9 @@ app.get('/api/qr-code/:applicationId', (req, res) => {
         };
 
         const transferInfo = {
-            bin: '970415',
-            accountNo: '111222333444',
-            accountName: 'TRUONG TIEU HOC NGUYEN HUE',
+            bin: '970405', // AgriBank
+            accountNo: '5304205050813',
+            accountName: 'HUA VAN THIEN',
             amount: 200000,
             description: `${application.id} ${removeAccents(application.studentName)}`
         };
