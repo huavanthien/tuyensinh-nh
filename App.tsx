@@ -8,9 +8,9 @@ import AdminLogin from './components/admin/AdminLogin';
 import Footer from './components/shared/Footer';
 
 // --- Cấu hình Địa chỉ Máy chủ ---
-// - Khi phát triển trên máy của bạn, hãy sử dụng 'http://localhost:3001'.
-// - Khi triển khai lên một dịch vụ như Render, hãy thay thế bằng URL của backend đó.
-export const API_BASE_URL = 'http://localhost:3001';
+// Ưu tiên sử dụng biến môi trường VITE_API_URL (Cấu hình trên Vercel).
+// Nếu không có (khi chạy local), sẽ dùng http://localhost:3001.
+export const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
 
 export const AppContext = React.createContext<{
   applications: Application[];
@@ -48,8 +48,9 @@ const App: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
+      console.log("Connecting to Backend at:", API_BASE_URL); // Debug log
       const response = await fetch(`${API_BASE_URL}/api/data`);
-      if (!response.ok) throw new Error('Không thể kết nối đến máy chủ.');
+      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
       const data = await response.json();
       setApplications(data.applications.map((app: Application) => ({...app, submittedAt: new Date(app.submittedAt) })));
       setClasses(data.classes);
@@ -60,7 +61,7 @@ const App: React.FC = () => {
       }
     } catch (error: any) {
       console.error("Failed to fetch data:", error);
-      setError(`Không thể tải dữ liệu. Lỗi: ${error.message || error}. Vui lòng kiểm tra xem máy chủ Backend đã được khởi động chưa.`);
+      setError(`Không thể tải dữ liệu. Lỗi: ${error.message || error}. Vui lòng kiểm tra kết nối đến Backend (${API_BASE_URL}).`);
     } finally {
       setLoading(false);
     }
@@ -136,12 +137,11 @@ const App: React.FC = () => {
                 <svg className="w-16 h-16 text-danger mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                 <h2 className="text-xl font-bold text-gray-800 mb-2">Không thể kết nối đến máy chủ</h2>
                 <p className="text-gray-600 mb-6">{error}</p>
-                <div className="bg-gray-100 p-4 rounded-md text-left text-sm text-gray-700 mb-6">
+                <div className="bg-gray-100 p-4 rounded-md text-left text-sm text-gray-700 mb-6 max-w-md">
                      <p className="font-bold mb-1">Cách khắc phục:</p>
                      <ul className="list-disc list-inside">
-                         <li>Mở <strong>Terminal</strong> hoặc <strong>PowerShell</strong>.</li>
-                         <li>Vào thư mục <code>backend</code>.</li>
-                         <li>Chạy lệnh: <code>node server.js</code></li>
+                         <li>Nếu chạy trên máy cá nhân: Đảm bảo đã chạy <code>node server.js</code> trong thư mục backend.</li>
+                         <li>Nếu chạy trên Vercel: Đảm bảo bạn đã thêm biến môi trường <strong>VITE_API_URL</strong> trỏ đến địa chỉ Backend trên Render (có dạng <code>https://...onrender.com</code>).</li>
                      </ul>
                 </div>
                 <button 
