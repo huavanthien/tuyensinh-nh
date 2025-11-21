@@ -195,6 +195,31 @@ app.post('/api/applications', upload.fields([{ name: 'birthCert', maxCount: 1 },
         res.status(500).json({ message: "Lỗi khi lưu hồ sơ" });
     }
 });
+// PUT Bulk Update (Class Assignment)
+app.put('/api/applications/bulk-update', async (req, res) => {
+    const { updates } = req.body; // Array of { id, classId, status }
+    if (!Array.isArray(updates)) return res.status(400).json({ message: "Dữ liệu không hợp lệ" });
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const results = [];
+        for (const update of updates) {
+            const res = await client.query(
+                'UPDATE applications SET class_id = $1, status = $2 WHERE id = $3 RETURNING *',
+                [update.classId, update.status, update.id]
+            );
+            if (res.rows[0]) results.push(mapAppFromDB(res.rows[0]));
+        }
+        await client.query('COMMIT');
+        res.json(results);
+    } catch (error) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ message: "Lỗi phân lớp hàng loạt" });
+    } finally {
+        client.release();
+    }
+});
 
 // PUT Application
 app.put('/api/applications/:id', async (req, res) => {
@@ -222,31 +247,7 @@ app.put('/api/applications/:id', async (req, res) => {
     }
 });
 
-// PUT Bulk Update (Class Assignment)
-app.put('/api/applications/bulk-update', async (req, res) => {
-    const { updates } = req.body; // Array of { id, classId, status }
-    if (!Array.isArray(updates)) return res.status(400).json({ message: "Dữ liệu không hợp lệ" });
 
-    const client = await pool.connect();
-    try {
-        await client.query('BEGIN');
-        const results = [];
-        for (const update of updates) {
-            const res = await client.query(
-                'UPDATE applications SET class_id = $1, status = $2 WHERE id = $3 RETURNING *',
-                [update.classId, update.status, update.id]
-            );
-            if (res.rows[0]) results.push(mapAppFromDB(res.rows[0]));
-        }
-        await client.query('COMMIT');
-        res.json(results);
-    } catch (error) {
-        await client.query('ROLLBACK');
-        res.status(500).json({ message: "Lỗi phân lớp hàng loạt" });
-    } finally {
-        client.release();
-    }
-});
 
 // CONFIRM PAYMENT
 app.post('/api/applications/:id/confirm-payment', async (req, res) => {
