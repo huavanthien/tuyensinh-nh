@@ -1,4 +1,5 @@
 
+require('./config/cloudinary');
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -12,6 +13,11 @@ const { Pool } = require('pg');
 const app = express();
 const PORT = process.env.PORT || 3001;
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
+// --- Cloudinary ---
+console.log(`Cloudinary Configured: ${!!process.env.CLOUDINARY_CLOUD_NAME}`);
+app.listen(PORT, () => {
+    console.log(`Backend server running on port ${PORT} with PostgreSQL`);
+});
 
 // --- Ensure Uploads Directory Exists ---
 if (!fs.existsSync(UPLOADS_DIR)) {
