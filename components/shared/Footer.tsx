@@ -8,7 +8,7 @@ const Footer: React.FC = () => {
         <footer className="bg-white border-t mt-auto">
             <div className="container mx-auto px-4 py-6 text-center text-gray-600">
                 <p>&copy; {new Date().getFullYear()} {appContext?.schoolSettings.schoolName}</p>
-                <p className="text-sm mt-1">Phát triển bởi Hứa Văn Thiện GV trường TH Nguyễn Huệ</p>
+                <p className="text-sm mt-1">Phát triển bởi Trường Tiểu học Nguyễn Huệ</p>
             </div>
         </footer>
     );
