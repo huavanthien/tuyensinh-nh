@@ -55,8 +55,8 @@ const PaymentInfo: React.FC<{ application: Application }> = ({ application }) =>
 
                 <div className="text-left space-y-2 text-gray-700">
                     <p><strong>Ngân hàng:</strong> (AgriBank)</p>
-                    <p><strong>Số tài khoản:</strong> <span className="font-mono">5304205050813</span></p>
-                    <p><strong>Chủ tài khoản:</strong> HUA VAN THIEN</p>
+                    <p><strong>Số tài khoản:</strong> <span className="font-mono">5308201000461</span></p>
+                    <p><strong>Chủ tài khoản:</strong> TRUONG TIEU HOC NGUYEN HUE</p>
                     <p><strong>Số tiền:</strong> <span className="font-bold text-danger">200.000 VNĐ</span></p>
                     <p className="bg-yellow-100 p-2 rounded-md">
                         <strong>Nội dung:</strong> <span className="font-mono font-semibold text-primary">{description}</span>
