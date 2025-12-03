@@ -519,8 +519,8 @@ app.get('/api/qr-code/:applicationId', async (req, res) => {
 
         const transferInfo = {
             bin: '970405', 
-            accountNo: '5304205050813',
-            accountName: 'HUA VAN THIEN',
+            accountNo: '5308201000461',
+            accountName: 'TRUONG TIEU HOC NGUYEN HUE',
             amount: 200000,
             description: `${req.params.applicationId} ${removeAccents(app.student_name)}`
         };
